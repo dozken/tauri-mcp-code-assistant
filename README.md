@@ -302,9 +302,9 @@ survivor list produced work worth doing.
 | ----------- | --------- | ------------------ | -------------------------------------------------- |
 | `contracts` | 32%       | 81%                | Nothing pinned the stream-event literals           |
 | `app`       | 62%       | 69%                | Branches the component tests skipped               |
-| `backend`   | 65%       | see below          | Lookup tables, plus two genuinely untested modules |
+| `backend`   | 65%       | 71%                | Lookup tables, plus two genuinely untested modules |
 
-The backend's five weakest files, re-measured after acting on the report:
+The backend's five weakest files carried most of that move:
 
 | File                    | Before | After |
 | ----------------------- | ------ | ----- |
