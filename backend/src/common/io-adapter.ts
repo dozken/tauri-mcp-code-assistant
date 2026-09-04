@@ -1,7 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import type { INestApplicationContext } from '@nestjs/common';
-import type { ServerOptions } from 'socket.io';
+import type { Server, ServerOptions } from 'socket.io';
 import type { AppConfig } from '../config/configuration.js';
 import { decideAccess } from './local-access.js';
 
@@ -21,7 +21,10 @@ export class ConfiguredIoAdapter extends IoAdapter {
     super(app);
   }
 
-  override createIOServer(port: number, options?: ServerOptions): unknown {
+  override createIOServer(port: number, options?: ServerOptions): Server {
+    // Nest declares the parameter as a complete `ServerOptions` even though it is
+    // optional and socket.io itself takes a partial, so anything spread from it
+    // needs widening back.
     return super.createIOServer(port, {
       ...options,
       cors: { origin: this.config.corsOrigins, credentials: true },
@@ -39,6 +42,6 @@ export class ConfiguredIoAdapter extends IoAdapter {
         );
         callback(decision.allowed ? null : decision.reason, decision.allowed);
       },
-    });
+    } as ServerOptions);
   }
 }

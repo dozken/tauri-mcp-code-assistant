@@ -28,10 +28,10 @@ export const App = () => {
         sx={{ zIndex: (theme) => theme.zIndex.drawer + 1, backdropFilter: 'blur(8px)' }}
       >
         <Toolbar variant="dense" sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="subtitle1" fontWeight={600} sx={{ flexGrow: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }}>
             AI Code Companion
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
             <Tooltip
               title={
                 vectorStore === 'chroma'

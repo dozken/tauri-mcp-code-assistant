@@ -47,13 +47,21 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
     <Stack sx={{ height: '100%', minWidth: 0 }}>
       <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }} data-testid="message-list">
         {messages.length === 0 ? (
-          <Stack spacing={2} alignItems="center" justifyContent="center" sx={{ height: '100%' }}>
+          <Stack
+            spacing={2}
+            sx={{ alignItems: 'center', justifyContent: 'center', height: '100%' }}
+          >
             <Typography variant="h6">Ask something about your codebase</Typography>
             <Typography variant="body2" color="text.secondary">
               Add a folder on the left, then ask a question. Answers are grounded in retrieved
               snippets.
             </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" justifyContent="center" useFlexGap>
+            <Stack
+              direction="row"
+              spacing={1}
+              useFlexGap
+              sx={{ flexWrap: 'wrap', justifyContent: 'center' }}
+            >
               {EXAMPLES.map((example) => (
                 <Chip
                   key={example}
@@ -86,7 +94,7 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
         variant="outlined"
         sx={{ p: 1.5, borderLeft: 0, borderRight: 0, borderBottom: 0 }}
       >
-        <Stack direction="row" spacing={1} alignItems="flex-end">
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-end' }}>
           <TextField
             fullWidth
             multiline
@@ -117,7 +125,7 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
             <SendIcon />
           </IconButton>
         </Stack>
-        <Stack direction="row" spacing={1} sx={{ mt: 1 }} alignItems="center">
+        <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: 'center' }}>
           <Typography variant="caption" color="text.secondary">
             {selectedRoot ? `Scoped to ${selectedRoot}` : 'Searching all indexed folders'}
           </Typography>

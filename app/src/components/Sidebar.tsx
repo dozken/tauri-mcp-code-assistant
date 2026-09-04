@@ -18,7 +18,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/CreateNewFolder';
-import DeleteIcon from '@mui/icons-material/DeleteOutline';
+import DeleteIcon from '@mui/icons-material/DeleteOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useAppStore } from '../store/appStore';
 import { cancelIndexing, removeRoot } from '../api/http';
@@ -125,7 +125,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
             value={activeJob.percent}
             sx={{ mt: 0.5 }}
           />
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
+          <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: 'center' }}>
             {activeJob.currentFile ? (
               <Typography
                 variant="caption"
@@ -183,9 +183,8 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
                   <>
                     <Typography
                       variant="caption"
-                      sx={{ fontFamily: MONOSPACE }}
+                      sx={{ fontFamily: MONOSPACE, display: 'block' }}
                       noWrap
-                      display="block"
                     >
                       {root.path}
                     </Typography>

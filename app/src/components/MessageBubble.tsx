@@ -94,7 +94,7 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
   return (
     <Stack
       direction="row"
-      justifyContent={isUser ? 'flex-end' : 'flex-start'}
+      sx={{ justifyContent: isUser ? 'flex-end' : 'flex-start' }}
       data-testid={`message-${message.role}`}
     >
       <Paper
@@ -110,7 +110,7 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
         {message.toolCalls.length > 0 && (
           <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', mb: 1 }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 0, px: 0 }}>
-              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                 <BuildIcon fontSize="small" color="secondary" />
                 {message.toolCalls.map((call, index) => (
                   <Chip
