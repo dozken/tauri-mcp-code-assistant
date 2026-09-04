@@ -15,13 +15,30 @@ export interface ChromaVectorStoreOptions {
   readonly batchSize?: number;
 }
 
-/** `http://localhost:8000` -> `{ host, port, ssl }`, the shape chromadb 3 wants. */
+/**
+ * `http://localhost:8000` -> `{ host, port, ssl }`, the shape chromadb 3 wants.
+ *
+ * The scheme check is not ceremony: `new URL('localhost:8000')` *succeeds*, with
+ * `localhost:` as the protocol and an empty hostname, so a perfectly natural
+ * `CHROMA_URL=localhost:8000` would otherwise connect to nowhere in silence.
+ */
 export const parseChromaUrl = (url: string): { host: string; port: number; ssl: boolean } => {
-  const parsed = new URL(url);
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`CHROMA_URL is not a URL: ${url}`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`CHROMA_URL must start with http:// or https://, received: ${url}`);
+  }
+
   const ssl = parsed.protocol === 'https:';
+  const defaultPort = ssl ? 443 : 8000;
   return {
     host: parsed.hostname,
-    port: parsed.port ? Number(parsed.port) : ssl ? 443 : 8000,
+    port: parsed.port === '' ? defaultPort : Number(parsed.port),
     ssl,
   };
 };

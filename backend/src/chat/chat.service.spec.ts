@@ -7,7 +7,7 @@ import { McpToolsService } from '../mcp/mcp-tools.service.js';
 import { StubChatModel } from '../llm/stub-chat-model.js';
 import { silentLogger, testConfig } from '../../test/helpers.js';
 import { ChatService } from './chat.service.js';
-import type { ChatStreamEvent } from './chat.types.js';
+import type { ChatStreamEvent } from '@ai-code-companion/contracts';
 
 const buildChatService = async (): Promise<{ chat: ChatService; store: MemoryVectorStore }> => {
   const store = new MemoryVectorStore(new HashingEmbeddings({ dimensions: 128 }));
@@ -36,9 +36,7 @@ const buildChatService = async (): Promise<{ chat: ChatService; store: MemoryVec
   return { chat: new ChatService(model, mcpTools, silentLogger()), store };
 };
 
-const collect = async (
-  events: AsyncGenerator<ChatStreamEvent>,
-): Promise<ChatStreamEvent[]> => {
+const collect = async (events: AsyncGenerator<ChatStreamEvent>): Promise<ChatStreamEvent[]> => {
   const out: ChatStreamEvent[] = [];
   for await (const event of events) out.push(event);
   return out;
@@ -80,9 +78,7 @@ describe('ChatService', () => {
   it('reuses the caller conversation id across every event', async () => {
     const { chat } = await buildChatService();
 
-    const events = await collect(
-      chat.stream({ message: 'anything', conversationId: 'conv-42' }),
-    );
+    const events = await collect(chat.stream({ message: 'anything', conversationId: 'conv-42' }));
 
     expect(events.every((event) => event.conversationId === 'conv-42')).toBe(true);
   });
@@ -91,7 +87,9 @@ describe('ChatService', () => {
     const config = testConfig();
     const codeTools = new CodeToolsService(
       config,
-      new MemoryVectorStore(new HashingEmbeddings({ dimensions: 32 })) as unknown as VectorStoreService,
+      new MemoryVectorStore(
+        new HashingEmbeddings({ dimensions: 32 }),
+      ) as unknown as VectorStoreService,
     );
     const chat = new ChatService(
       new StubChatModel({ tokenDelayMs: 0 }),
@@ -113,7 +111,7 @@ describe('ChatService', () => {
     const response = await chat.chat({ message: 'where is auth?' });
 
     expect(response.toolCalls[0]).toMatchObject({ failed: true });
-    expect(response.toolCalls[0].result).toMatch(/vector store offline/);
+    expect(response.toolCalls[0]!.result).toMatch(/vector store offline/);
     expect(response.message.length).toBeGreaterThan(0);
   });
 
@@ -121,7 +119,9 @@ describe('ChatService', () => {
     const config = testConfig();
     const codeTools = new CodeToolsService(
       config,
-      new MemoryVectorStore(new HashingEmbeddings({ dimensions: 32 })) as unknown as VectorStoreService,
+      new MemoryVectorStore(
+        new HashingEmbeddings({ dimensions: 32 }),
+      ) as unknown as VectorStoreService,
     );
     const model = new StubChatModel({ tokenDelayMs: 0 });
     model.bindTools = () => {

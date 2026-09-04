@@ -1,26 +1,39 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import { getSocket } from '../api/socket';
-import { fetchStatus, startIndexing } from '../api/http';
+import { ContractError, HttpError, fetchStatus, startIndexing } from '../api/http';
 import { useAppStore } from '../store/appStore';
-import type { ChatStreamEvent, IndexProgressEvent } from '../types';
+import {
+  SOCKET_EVENTS,
+  chatDoneEventSchema,
+  chatErrorEventSchema,
+  chatTokenEventSchema,
+  chatToolEventSchema,
+  indexProgressEventSchema,
+} from '@ai-code-companion/contracts';
+import type { ZodType } from 'zod';
 
 /**
  * Binds the Socket.IO connection to the Zustand store and exposes the two write
  * actions the UI needs. Everything I/O-shaped lives here so the store stays pure.
  */
+/** Turns a thrown value into something worth showing a user. */
+const describe = (error: unknown): string => {
+  if (error instanceof ContractError) {
+    return `${error.message} The app and the backend are probably different versions.`;
+  }
+  if (error instanceof HttpError) return error.message;
+  return error instanceof Error ? error.message : String(error);
+};
+
 export const useBackend = () => {
   const refreshStatus = useCallback(async () => {
     const store = useAppStore.getState();
     try {
       store.applyStatus(await fetchStatus());
     } catch (error) {
-      store.setError(error instanceof Error ? error.message : String(error));
+      store.setError(describe(error));
     }
   }, []);
-
-  // Kept in a ref so the effect below never needs it in its dependency list.
-  const refreshRef = useRef(refreshStatus);
-  refreshRef.current = refreshStatus;
 
   useEffect(() => {
     const socket = getSocket();
@@ -28,7 +41,7 @@ export const useBackend = () => {
 
     const onConnect = (): void => {
       store().setConnected(true);
-      void refreshRef.current();
+      void refreshStatus();
     };
     const onDisconnect = (): void => store().setConnected(false);
     const onConnectError = (error: Error): void => {
@@ -36,43 +49,60 @@ export const useBackend = () => {
       store().setError(`Cannot reach the backend: ${error.message}`);
     };
 
-    const onProgress = (event: IndexProgressEvent): void => {
-      store().applyProgress(event);
-      // A finished job changes the folder list, so re-read the authoritative status.
-      if (event.state !== 'running') void refreshRef.current();
+    // Each subscription hands back its own teardown, so `off` cannot drift from `on`.
+    const disposers: (() => void)[] = [];
+
+    const on = (event: string, handler: (...args: unknown[]) => void): void => {
+      socket.on(event, handler);
+      disposers.push(() => socket.off(event, handler));
     };
 
-    const onToken = (event: Extract<ChatStreamEvent, { type: 'token' }>): void =>
-      store().appendToken(event.token);
-    const onTool = (event: Extract<ChatStreamEvent, { type: 'tool' }>): void =>
-      store().addToolCall(event.tool);
-    const onDone = (event: Extract<ChatStreamEvent, { type: 'done' }>): void =>
-      store().completeAssistantMessage(event.message);
-    const onChatError = (event: Extract<ChatStreamEvent, { type: 'error' }>): void =>
-      store().failAssistantMessage(event.error);
+    /**
+     * Socket payloads arrive as untyped JSON. Parsing them against the shared
+     * contract turns a backend/app version skew into one visible warning instead
+     * of `undefined` surfacing somewhere deep in a component.
+     */
+    const onValidated = <T>(
+      event: string,
+      schema: ZodType<T>,
+      handler: (payload: T) => void,
+    ): void =>
+      on(event, (raw) => {
+        const parsed = schema.safeParse(raw);
+        if (parsed.success) handler(parsed.data);
+        else store().setError(`Ignored a malformed "${event}" event from the backend.`);
+      });
 
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('connect_error', onConnectError);
-    socket.on('index:progress', onProgress);
-    socket.on('chat:token', onToken);
-    socket.on('chat:tool', onTool);
-    socket.on('chat:done', onDone);
-    socket.on('chat:error', onChatError);
+    on('connect', onConnect);
+    on('disconnect', onDisconnect);
+    on('connect_error', (error) => {
+      onConnectError(error instanceof Error ? error : new Error(String(error)));
+    });
+
+    onValidated(SOCKET_EVENTS.indexProgress, indexProgressEventSchema, (event) => {
+      store().applyProgress(event);
+      // A finished job changes the folder list, so re-read the authoritative status.
+      if (event.state !== 'running') void refreshStatus();
+    });
+    onValidated(SOCKET_EVENTS.chatToken, chatTokenEventSchema, (event) => {
+      store().appendToken(event.token);
+    });
+    onValidated(SOCKET_EVENTS.chatTool, chatToolEventSchema, (event) => {
+      store().addToolCall(event.tool);
+    });
+    onValidated(SOCKET_EVENTS.chatDone, chatDoneEventSchema, (event) => {
+      store().completeAssistantMessage(event.message);
+    });
+    onValidated(SOCKET_EVENTS.chatError, chatErrorEventSchema, (event) => {
+      store().failAssistantMessage(event.error);
+    });
 
     if (socket.connected) onConnect();
 
     return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('connect_error', onConnectError);
-      socket.off('index:progress', onProgress);
-      socket.off('chat:token', onToken);
-      socket.off('chat:tool', onTool);
-      socket.off('chat:done', onDone);
-      socket.off('chat:error', onChatError);
+      for (const dispose of disposers) dispose();
     };
-  }, []);
+  }, [refreshStatus]);
 
   const sendMessage = useCallback((text: string) => {
     const content = text.trim();
@@ -90,7 +120,7 @@ export const useBackend = () => {
     store.addUserMessage(content);
     store.beginAssistantMessage();
 
-    getSocket().emit('chat:send', {
+    getSocket().emit(SOCKET_EVENTS.chatSend, {
       message: content,
       history,
       conversationId: store.conversationId,
@@ -103,12 +133,12 @@ export const useBackend = () => {
       const store = useAppStore.getState();
       try {
         await startIndexing(path);
-        await refreshRef.current();
+        await refreshStatus();
       } catch (error) {
-        store.setError(error instanceof Error ? error.message : String(error));
+        store.setError(describe(error));
       }
     },
-    [],
+    [refreshStatus],
   );
 
   return { sendMessage, indexFolder, refreshStatus };

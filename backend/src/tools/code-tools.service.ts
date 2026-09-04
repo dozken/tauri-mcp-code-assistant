@@ -4,6 +4,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { resolveWithinRoots } from '../common/path-guard.js';
 import { detectLanguage } from '../indexing/chunker.js';
+import { extractImport, extractSymbol } from './outline.js';
 import { VectorStoreService } from '../vector/vector-store.service.js';
 import type {
   ExplainFileInput,
@@ -13,32 +14,7 @@ import type {
   GenerateSnippetResult,
   SearchCodeInput,
   SearchCodeResult,
-} from './tool-schemas.js';
-
-/**
- * Cheap, language-agnostic outline extraction. A real product would use
- * tree-sitter here; regexes keep the demo dependency-free and deterministic,
- * which is exactly what the unit tests want.
- */
-const SYMBOL_PATTERNS: ReadonlyArray<{ kind: string; pattern: RegExp }> = [
-  { kind: 'class', pattern: /^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/ },
-  { kind: 'interface', pattern: /^\s*(?:export\s+)?interface\s+([A-Za-z_$][\w$]*)/ },
-  { kind: 'type', pattern: /^\s*(?:export\s+)?type\s+([A-Za-z_$][\w$]*)\s*[=<]/ },
-  { kind: 'enum', pattern: /^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)/ },
-  { kind: 'function', pattern: /^\s*(?:export\s+)?(?:async\s+)?function\s+\*?\s*([A-Za-z_$][\w$]*)/ },
-  { kind: 'function', pattern: /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/ },
-  { kind: 'function', pattern: /^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z_][\w]*)/ },
-  { kind: 'function', pattern: /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_][\w]*)/ },
-  { kind: 'function', pattern: /^\s*(?:async\s+)?def\s+([A-Za-z_][\w]*)/ },
-  { kind: 'class', pattern: /^\s*(?:pub\s+)?struct\s+([A-Za-z_][\w]*)/ },
-];
-
-const IMPORT_PATTERNS: ReadonlyArray<RegExp> = [
-  /^\s*import\s+(?:.+?\s+from\s+)?['"]([^'"]+)['"]/,
-  /^\s*(?:const|let|var)\s+.+?=\s*require\(\s*['"]([^'"]+)['"]\s*\)/,
-  /^\s*from\s+([\w.]+)\s+import\s+/,
-  /^\s*use\s+([\w:]+)/,
-];
+} from '@ai-code-companion/contracts';
 
 type SnippetTemplate = (prompt: string) => string;
 
@@ -113,11 +89,7 @@ export class CodeToolsService {
   }
 
   async explainFile(input: ExplainFileInput): Promise<ExplainFileResult> {
-    const path = await resolveWithinRoots(
-      input.path,
-      this.config.indexing.allowedRoots,
-      'file',
-    );
+    const path = await resolveWithinRoots(input.path, this.config.indexing.allowedRoots, 'file');
     // stat before read: reading a multi-gigabyte file into memory just to reject
     // it afterwards is how a "too large" guard becomes an OOM.
     const { size } = await stat(path);
@@ -133,21 +105,16 @@ export class CodeToolsService {
     const imports = new Set<string>();
     const symbols: FileSymbol[] = [];
 
-    lines.forEach((line, index) => {
-      for (const pattern of IMPORT_PATTERNS) {
-        const match = pattern.exec(line);
-        if (match) {
-          imports.add(match[1]);
-          break;
-        }
-      }
-      for (const { kind, pattern } of SYMBOL_PATTERNS) {
-        const match = pattern.exec(line);
-        if (match) {
-          symbols.push({ kind, name: match[1], line: index + 1 });
-          break;
-        }
-      }
+    lines.forEach((rawLine, index) => {
+      // Trimmed once so neither extractor needs a leading `\s*`, which is what makes
+      // this family of patterns backtrack quadratically.
+      const line = rawLine.trim();
+
+      const specifier = extractImport(line);
+      if (specifier !== undefined) imports.add(specifier);
+
+      const symbol = extractSymbol(line);
+      if (symbol !== undefined) symbols.push({ ...symbol, line: index + 1 });
     });
 
     return {

@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 
-const host = process.env.TAURI_DEV_HOST;
+// An empty string means "unset" for this variable, which `??` would not catch.
+const rawHost = process.env.TAURI_DEV_HOST?.trim();
+const host = rawHost === undefined || rawHost === '' ? undefined : rawHost;
 
 // https://vite.dev/config/ — tuned for `tauri dev`, which expects a fixed port.
 export default defineConfig({
@@ -14,7 +16,7 @@ export default defineConfig({
     // Tauri points the webview at a fixed URL, so silently moving ports would
     // leave the desktop window on a dead address.
     strictPort: true,
-    host: host || '127.0.0.1',
+    host: host ?? '127.0.0.1',
     hmr: host ? { protocol: 'ws', host, port: 1421 } : undefined,
     watch: { ignored: ['**/src-tauri/**'] },
   },

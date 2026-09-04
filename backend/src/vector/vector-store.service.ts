@@ -4,12 +4,7 @@ import type { Embeddings } from '@langchain/core/embeddings';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { EMBEDDINGS } from './vector.tokens.js';
 import { createVectorStore } from './vector-store.factory.js';
-import type {
-  CodeChunk,
-  ScoredChunk,
-  SearchOptions,
-  VectorStore,
-} from './vector-store.types.js';
+import type { CodeChunk, ScoredChunk, SearchOptions, VectorStore } from './vector-store.types.js';
 
 /**
  * Nest-facing facade over {@link VectorStore}. Resolution is lazy and memoised so

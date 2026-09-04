@@ -5,7 +5,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import { App } from './App';
 import { theme } from './theme';
 
-const container = document.getElementById('root');
+const container = document.querySelector('#root');
 if (!container) throw new Error('Missing #root element');
 
 createRoot(container).render(

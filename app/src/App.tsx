@@ -69,7 +69,10 @@ export const App = () => {
         <Sidebar onIndexFolder={indexFolder} onRefresh={refreshStatus} />
       </Drawer>
 
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <Box
+        component="main"
+        sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
+      >
         <Toolbar variant="dense" />
         <Box sx={{ flex: 1, minHeight: 0 }}>
           <ChatPanel onSend={sendMessage} />

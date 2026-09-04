@@ -12,7 +12,7 @@ import { useAppStore } from '../store/appStore';
 import { MessageBubble } from './MessageBubble';
 
 export interface ChatPanelProps {
-  onSend(message: string): void;
+  onSend: (message: string) => void;
 }
 
 const EXAMPLES = [
@@ -75,13 +75,17 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
         )}
       </Box>
 
-      {error && (
+      {error ? (
         <Alert severity="warning" variant="outlined" sx={{ mx: 2, mb: 1 }}>
           {error}
         </Alert>
-      )}
+      ) : null}
 
-      <Paper square variant="outlined" sx={{ p: 1.5, borderLeft: 0, borderRight: 0, borderBottom: 0 }}>
+      <Paper
+        square
+        variant="outlined"
+        sx={{ p: 1.5, borderLeft: 0, borderRight: 0, borderBottom: 0 }}
+      >
         <Stack direction="row" spacing={1} alignItems="flex-end">
           <TextField
             fullWidth

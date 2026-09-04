@@ -1,8 +1,8 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 
-export type LlmProvider = 'stub' | 'openai';
-export type EmbeddingsProvider = 'hashing' | 'openai';
+type LlmProvider = 'stub' | 'openai';
+type EmbeddingsProvider = 'hashing' | 'openai';
 
 export interface AppConfig {
   readonly host: string;
@@ -47,6 +47,12 @@ export interface AppConfig {
   readonly metadataDb: string;
 }
 
+/** Treats an empty or whitespace-only variable as unset, which `??` would not. */
+const text = (value: string | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed === undefined || trimmed === '' ? undefined : trimmed;
+};
+
 const num = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -57,6 +63,13 @@ const bool = (value: string | undefined, fallback: boolean): boolean => {
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 };
 
+/** Accepts a value only if it is one of `allowed`; anything else takes the fallback. */
+const oneOf = <T extends string>(
+  value: string | undefined,
+  allowed: readonly T[],
+  fallback: T,
+): T => (allowed.includes(value as T) ? (value as T) : fallback);
+
 const list = (value: string | undefined, fallback: string[]): string[] => {
   const items = (value ?? '')
     .split(',')
@@ -66,7 +79,7 @@ const list = (value: string | undefined, fallback: string[]): string[] => {
 };
 
 export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
-  const apiKey = env.OPENAI_API_KEY?.trim() || undefined;
+  const apiKey = text(env.OPENAI_API_KEY);
 
   return {
     host: env.HOST ?? '127.0.0.1',
@@ -85,15 +98,23 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     embeddings: {
       // Without an API key we fall back to deterministic local embeddings so the
       // whole retrieval pipeline still works offline.
-      provider: (env.EMBEDDINGS_PROVIDER as EmbeddingsProvider) ?? (apiKey ? 'openai' : 'hashing'),
+      provider: oneOf<EmbeddingsProvider>(
+        env.EMBEDDINGS_PROVIDER,
+        ['hashing', 'openai'],
+        apiKey ? 'openai' : 'hashing',
+      ),
       dimensions: num(env.EMBEDDINGS_DIMENSIONS, 384),
       model: env.EMBEDDINGS_MODEL ?? 'text-embedding-3-small',
     },
     llm: {
-      provider: (env.LLM_PROVIDER as LlmProvider) ?? (apiKey ? 'openai' : 'stub'),
+      provider: oneOf<LlmProvider>(
+        env.LLM_PROVIDER,
+        ['stub', 'openai'],
+        apiKey ? 'openai' : 'stub',
+      ),
       model: env.LLM_MODEL ?? 'gpt-4o-mini',
       apiKey,
-      baseUrl: env.OPENAI_BASE_URL?.trim() || undefined,
+      baseUrl: text(env.OPENAI_BASE_URL),
       temperature: Number(env.LLM_TEMPERATURE ?? 0),
     },
     indexing: {

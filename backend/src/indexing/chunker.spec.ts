@@ -6,9 +6,9 @@ describe('chunkText', () => {
     const chunks = chunkText('const a = 1;\nconst b = 2;\n', { chunkSize: 200, chunkOverlap: 20 });
 
     expect(chunks).toHaveLength(1);
-    expect(chunks[0].startLine).toBe(1);
-    expect(chunks[0].endLine).toBe(3);
-    expect(chunks[0].text).toContain('const b = 2;');
+    expect(chunks[0]!.startLine).toBe(1);
+    expect(chunks[0]!.endLine).toBe(3);
+    expect(chunks[0]!.text).toContain('const b = 2;');
   });
 
   it('ignores whitespace-only input', () => {
@@ -26,8 +26,8 @@ describe('chunkText', () => {
     }
     // Consecutive chunks must overlap but still move forward.
     for (let i = 1; i < chunks.length; i += 1) {
-      expect(chunks[i].startLine).toBeGreaterThan(chunks[i - 1].startLine);
-      expect(chunks[i].startLine).toBeLessThanOrEqual(chunks[i - 1].endLine + 1);
+      expect(chunks[i]!.startLine).toBeGreaterThan(chunks[i - 1]!.startLine);
+      expect(chunks[i]!.startLine).toBeLessThanOrEqual(chunks[i - 1]!.endLine + 1);
     }
     expect(chunks.at(-1)?.endLine).toBe(200);
   });

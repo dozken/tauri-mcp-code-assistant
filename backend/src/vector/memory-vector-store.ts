@@ -21,7 +21,10 @@ export class MemoryVectorStore implements VectorStore {
     if (chunks.length === 0) return;
     const vectors = await this.embeddings.embedDocuments(chunks.map((chunk) => chunk.text));
     chunks.forEach((chunk, index) => {
-      this.chunks.set(chunk.id, { ...chunk, vector: vectors[index] });
+      const vector = vectors[index];
+      // An embedder that returns fewer vectors than documents is a contract
+      // violation; dropping the chunk beats storing an undefined vector.
+      if (vector !== undefined) this.chunks.set(chunk.id, { ...chunk, vector });
     });
   }
 
@@ -36,7 +39,7 @@ export class MemoryVectorStore implements VectorStore {
       candidates.push({ ...chunk, score: cosineSimilarity(queryVector, vector) });
     }
 
-    return candidates.sort((a, b) => b.score - a.score).slice(0, limit);
+    return candidates.toSorted((a, b) => b.score - a.score).slice(0, limit);
   }
 
   async deleteByRoot(root: string): Promise<void> {

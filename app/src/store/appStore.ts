@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import type {
-  ChatMessage,
   IndexProgressEvent,
   IndexStatus,
   IndexedRoot,
   ToolInvocation,
-} from '../types';
+} from '@ai-code-companion/contracts';
+import type { ChatMessage } from '../types';
 
 export interface AppState {
   connected: boolean;
@@ -23,22 +23,27 @@ export interface AppState {
   error?: string;
 }
 
-export interface AppActions {
-  setConnected(connected: boolean): void;
-  setError(error?: string): void;
+/**
+ * Declared as function properties rather than methods: these are plain closures,
+ * never bound to `this`, and property syntax keeps them contravariant (method
+ * syntax is bivariant, and reads as an unbound method at every call site).
+ */
+interface AppActions {
+  setConnected: (connected: boolean) => void;
+  setError: (error?: string) => void;
 
-  addUserMessage(content: string): void;
+  addUserMessage: (content: string) => void;
   /** Opens the assistant bubble that streamed tokens will land in. */
-  beginAssistantMessage(conversationId?: string): void;
-  appendToken(token: string): void;
-  addToolCall(tool: ToolInvocation): void;
-  completeAssistantMessage(content?: string): void;
-  failAssistantMessage(error: string): void;
-  clearMessages(): void;
+  beginAssistantMessage: (conversationId?: string) => void;
+  appendToken: (token: string) => void;
+  addToolCall: (tool: ToolInvocation) => void;
+  completeAssistantMessage: (content?: string) => void;
+  failAssistantMessage: (error: string) => void;
+  clearMessages: () => void;
 
-  applyStatus(status: IndexStatus): void;
-  applyProgress(progress: IndexProgressEvent): void;
-  selectRoot(root?: string): void;
+  applyStatus: (status: IndexStatus) => void;
+  applyProgress: (progress: IndexProgressEvent) => void;
+  selectRoot: (root?: string) => void;
 }
 
 export type AppStore = AppState & AppActions;
@@ -54,8 +59,13 @@ export const initialState: AppState = {
   totalChunks: 0,
 };
 
-const createId = (): string =>
-  globalThis.crypto?.randomUUID?.() ?? `id-${Math.random().toString(36).slice(2)}`;
+const createId = (): string => {
+  // `crypto.randomUUID` is unavailable outside secure contexts even though the DOM
+  // lib types it as always present, so the fallback is real. These ids are React
+  // keys, not tokens, so a non-cryptographic fallback is fine.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, sonarjs/pseudo-random
+  return globalThis.crypto?.randomUUID?.() ?? `id-${Math.random().toString(36).slice(2)}`;
+};
 
 const message = (role: ChatMessage['role'], content: string, streaming = false): ChatMessage => ({
   id: createId(),
@@ -76,9 +86,10 @@ const updateLastAssistant = (
   update: (current: ChatMessage) => ChatMessage,
 ): ChatMessage[] => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === 'assistant') {
+    const current = messages[index];
+    if (current?.role === 'assistant') {
       const next = [...messages];
-      next[index] = update(messages[index]);
+      next[index] = update(current);
       return next;
     }
   }

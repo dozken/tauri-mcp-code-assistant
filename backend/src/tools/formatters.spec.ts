@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatSearchResult, formatSnippetResult } from './formatters.js';
-import type { SearchCodeResult } from './tool-schemas.js';
+import type { SearchCodeResult } from '@ai-code-companion/contracts';
 
 const result = (text: string): SearchCodeResult => ({
   query: 'q',
@@ -19,7 +19,7 @@ const result = (text: string): SearchCodeResult => ({
 
 /** Number of backticks in the opening fence of the rendered block. */
 const fenceLength = (rendered: string): number =>
-  /\n(`{3,})markdown\n/.exec(rendered)?.[1].length ?? 0;
+  /\n(`{3,})markdown\n/.exec(rendered)?.[1]?.length ?? 0;
 
 describe('formatSearchResult', () => {
   it('cites each match as path:startLine-endLine with its score', () => {

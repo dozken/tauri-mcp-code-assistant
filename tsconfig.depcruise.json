@@ -1,0 +1,13 @@
+{
+  "//": "dependency-cruiser resolves the whole monorepo in one pass; the per-workspace tsconfigs are scoped to their own package.",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["app/src/**/*", "app/e2e/**/*", "backend/src/**/*", "backend/test/**/*", "packages/*/src/**/*"]
+}

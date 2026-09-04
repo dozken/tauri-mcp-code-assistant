@@ -9,7 +9,6 @@ import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
 import { silentLogger, testConfig } from '../../test/helpers.js';
 import { IndexingService } from './indexing.service.js';
-import type { IndexProgressEvent } from './indexing.types.js';
 
 /** The in-memory store satisfies the same contract the service depends on. */
 const asVectorStoreService = (store: MemoryVectorStore): VectorStoreService =>
@@ -41,7 +40,12 @@ describe('IndexingService', () => {
         ...overrides,
       },
     });
-    const instance = new IndexingService(config, metadata, asVectorStoreService(store), silentLogger());
+    const instance = new IndexingService(
+      config,
+      metadata,
+      asVectorStoreService(store),
+      silentLogger(),
+    );
     await instance.onModuleInit();
     return instance;
   };
@@ -51,12 +55,21 @@ describe('IndexingService', () => {
     store = new MemoryVectorStore(new HashingEmbeddings({ dimensions: 64 }));
     metadata = new MemoryMetadataStore();
 
-    await writeFile(join(root, 'auth.ts'), 'export function authenticateUser(token: string) {\n  return token.length > 0;\n}\n');
-    await writeFile(join(root, 'math.ts'), 'export const addNumbers = (a: number, b: number) => a + b;\n');
+    await writeFile(
+      join(root, 'auth.ts'),
+      'export function authenticateUser(token: string) {\n  return token.length > 0;\n}\n',
+    );
+    await writeFile(
+      join(root, 'math.ts'),
+      'export const addNumbers = (a: number, b: number) => a + b;\n',
+    );
     await writeFile(join(root, 'README.md'), '# Demo repository\n');
     await writeFile(join(root, 'logo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     await mkdir(join(root, 'node_modules', 'left-pad'), { recursive: true });
-    await writeFile(join(root, 'node_modules', 'left-pad', 'index.js'), 'module.exports = () => {};\n');
+    await writeFile(
+      join(root, 'node_modules', 'left-pad', 'index.js'),
+      'module.exports = () => {};\n',
+    );
 
     service = await build();
   });
@@ -71,12 +84,12 @@ describe('IndexingService', () => {
 
     const status = await service.getStatus();
     expect(status.roots).toHaveLength(1);
-    expect(status.roots[0].path).toBe(root);
-    expect(status.roots[0].fileCount).toBe(3); // auth.ts, math.ts, README.md
+    expect(status.roots[0]!.path).toBe(root);
+    expect(status.roots[0]!.fileCount).toBe(3); // auth.ts, math.ts, README.md
     expect(status.totalChunks).toBeGreaterThan(0);
 
     const hits = await store.search('authenticate user');
-    expect(hits[0].metadata.relativePath).toBe('auth.ts');
+    expect(hits[0]!.metadata.relativePath).toBe('auth.ts');
     expect(hits.every((hit) => !hit.metadata.relativePath.includes('node_modules'))).toBe(true);
   });
 
@@ -93,7 +106,7 @@ describe('IndexingService', () => {
   });
 
   it('emits progress that ends in a completed state', async () => {
-    const events = firstValueFrom(service.progress.pipe(toArray())) as Promise<IndexProgressEvent[]>;
+    const events = firstValueFrom(service.progress.pipe(toArray()));
 
     await service.startIndexing(root);
     await settle(service);
@@ -102,7 +115,7 @@ describe('IndexingService', () => {
 
     const emitted = await events;
     expect(emitted.length).toBeGreaterThan(1);
-    expect(emitted[0].state).toBe('running');
+    expect(emitted[0]!.state).toBe('running');
     expect(emitted.at(-1)).toMatchObject({ state: 'completed', percent: 100 });
   });
 
@@ -152,7 +165,7 @@ describe('IndexingService', () => {
     try {
       await service.startIndexing(link);
       await settle(service);
-      expect((await service.getStatus()).roots[0].path).toBe(root);
+      expect((await service.getStatus()).roots[0]!.path).toBe(root);
 
       // Removal has to resolve the symlink too, or the folder is unremovable.
       await service.removeRoot(link);
@@ -186,7 +199,7 @@ describe('IndexingService', () => {
 
     const status = await service.getStatus();
     expect(status.activeJob).toBeNull();
-    expect(status.roots[0].fileCount).toBe(3);
+    expect(status.roots[0]!.fileCount).toBe(3);
     spy.mockRestore();
   });
 });

@@ -3,8 +3,7 @@
  * (`npm run dev`) and inside the desktop shell.
  */
 
-export const isTauri = (): boolean =>
-  typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 /**
  * Opens the OS folder picker. Returns `null` when the user cancels, and
@@ -17,7 +16,11 @@ export const pickFolder = async (): Promise<string | null | undefined> => {
   // Imported lazily: the plugin touches Tauri internals that do not exist in a
   // browser, and a static import would break `vite dev`.
   const { open } = await import('@tauri-apps/plugin-dialog');
-  const selected = await open({ directory: true, multiple: false, title: 'Choose a folder to index' });
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: 'Choose a folder to index',
+  });
   return typeof selected === 'string' ? selected : null;
 };
 

@@ -3,7 +3,7 @@ import type { Params } from 'nestjs-pino';
 
 const isProduction = (): boolean => process.env.NODE_ENV === 'production';
 
-export const basePinoOptions = (name: string): LoggerOptions => ({
+const basePinoOptions = (name: string): LoggerOptions => ({
   name,
   level: process.env.LOG_LEVEL ?? (isProduction() ? 'info' : 'debug'),
   // Never let a stray API key reach the logs.

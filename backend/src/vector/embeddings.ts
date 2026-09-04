@@ -11,6 +11,9 @@ const FNV_PRIME = 0x01000193;
 export const fnv1a = (input: string, seed = FNV_OFFSET): number => {
   let hash = seed >>> 0;
   for (let i = 0; i < input.length; i += 1) {
+    // Code units, not code points: FNV-1a is defined over bytes, and folding a
+    // surrogate pair into one value would change every hash for no benefit.
+    // eslint-disable-next-line unicorn/prefer-code-point
     hash ^= input.charCodeAt(i);
     hash = Math.imul(hash, FNV_PRIME) >>> 0;
   }
@@ -23,7 +26,7 @@ export const fnv1a = (input: string, seed = FNV_OFFSET): number => {
  */
 export const tokenize = (text: string): string[] =>
   text
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replaceAll(/([a-z0-9])([A-Z])/g, '$1 $2')
     .split(/[^A-Za-z0-9]+/)
     .map((token) => token.toLowerCase())
     .filter((token) => token.length > 1 && token.length < 40);
@@ -87,10 +90,11 @@ export const cosineSimilarity = (a: readonly number[], b: readonly number[]): nu
   let dot = 0;
   let normA = 0;
   let normB = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
+  for (const [index, left] of a.entries()) {
+    const right = b[index] ?? 0;
+    dot += left * right;
+    normA += left * left;
+    normB += right * right;
   }
   if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));

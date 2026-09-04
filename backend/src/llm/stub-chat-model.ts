@@ -26,19 +26,25 @@ export interface StubChatModelParams extends BaseChatModelParams {
   retrievalToolName?: string;
 }
 
-/** Message content can be a string or a list of content blocks. */
+/**
+ * Message content is either a string or a list of content blocks. Only textual
+ * blocks contribute; an image or a tool-use block stringifies to `[object Object]`
+ * if you are careless, which is exactly what the user would then see streamed.
+ */
 export const messageText = (content: MessageContent): string => {
   if (typeof content === 'string') return content;
   return content
-    .map((part) => (typeof part === 'string' ? part : 'text' in part ? String(part.text ?? '') : ''))
+    .map((part) => {
+      if (typeof part === 'string') return part;
+      const text: unknown = 'text' in part ? part.text : undefined;
+      return typeof text === 'string' ? text : '';
+    })
     .join('');
 };
 
 const toolName = (tool: BindToolsInput): string | undefined => {
-  if (typeof tool === 'object' && tool !== null && 'name' in tool) {
-    return String((tool as { name: unknown }).name);
-  }
-  return undefined;
+  const name: unknown = (tool as { name?: unknown }).name;
+  return typeof name === 'string' ? name : undefined;
 };
 
 const truncate = (value: string, max: number): string =>
@@ -72,7 +78,7 @@ export class StubChatModel extends BaseChatModel<StubChatModelCallOptions> {
   ): Runnable<BaseLanguageModelInput, AIMessageChunk, StubChatModelCallOptions> {
     // LangChain v1 renamed `bind` to `withConfig`; the bound options land in
     // `_generate`/`_streamResponseChunks` as `options.tools`.
-    return this.withConfig({ tools, ...kwargs } as Partial<StubChatModelCallOptions>);
+    return this.withConfig({ tools, ...kwargs });
   }
 
   async _generate(
@@ -124,10 +130,11 @@ export class StubChatModel extends BaseChatModel<StubChatModelCallOptions> {
    * from the retrieved context on the second.
    */
   private plan(messages: BaseMessage[], tools: BindToolsInput[]): AIMessage {
-    const lastHumanIndex = findLastIndex(messages, (message) => message.getType() === 'human');
-    const question = lastHumanIndex >= 0 ? messageText(messages[lastHumanIndex].content).trim() : '';
+    const lastHumanIndex = findLastIndex(messages, (message) => message.type === 'human');
+    const lastHuman = lastHumanIndex === -1 ? undefined : messages[lastHumanIndex];
+    const question = lastHuman === undefined ? '' : messageText(lastHuman.content).trim();
     const since = messages.slice(lastHumanIndex + 1);
-    const alreadySearched = since.some((message) => message.getType() === 'tool');
+    const alreadySearched = since.some((message) => message.type === 'tool');
     const canSearch = tools.some((tool) => toolName(tool) === this.retrievalToolName);
 
     if (canSearch && !alreadySearched && question.length > 0) {
@@ -145,7 +152,7 @@ export class StubChatModel extends BaseChatModel<StubChatModelCallOptions> {
     }
 
     const observations = since
-      .filter((message) => message.getType() === 'tool')
+      .filter((message) => message.type === 'tool')
       .map((message) => messageText(message.content))
       .join('\n\n')
       .trim();
@@ -177,7 +184,8 @@ export const tokenise = (text: string): string[] => text.match(/\s+|\S+/g) ?? []
 
 const findLastIndex = <T>(items: readonly T[], predicate: (item: T) => boolean): number => {
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (predicate(items[index])) return index;
+    const item = items[index];
+    if (item !== undefined && predicate(item)) return index;
   }
   return -1;
 };

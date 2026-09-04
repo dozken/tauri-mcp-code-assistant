@@ -1,47 +1,50 @@
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Post,
-  Query,
-} from '@nestjs/common';
+  API_ROUTES,
+  indexRequestSchema,
+  removeRootQuerySchema,
+  type CancelIndexingResponse,
+  type HealthResponse,
+  type IndexJob,
+  type IndexRequest,
+  type IndexStatus,
+  type RemoveRootQuery,
+} from '@ai-code-companion/contracts';
+import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { IndexingService } from './indexing.service.js';
-import { IndexRequestDto } from './dto.js';
-import type { IndexJob, IndexStatus } from './indexing.types.js';
 
 @Controller()
 export class IndexingController {
   constructor(private readonly indexing: IndexingService) {}
 
   /** Accepts the job and returns immediately; progress arrives over Socket.IO. */
-  @Post('index')
+  @Post(API_ROUTES.index)
   @HttpCode(HttpStatus.ACCEPTED)
-  start(@Body() body: IndexRequestDto): Promise<IndexJob> {
+  start(@Body(new ZodValidationPipe(indexRequestSchema)) body: IndexRequest): Promise<IndexJob> {
     return this.indexing.startIndexing(body.path);
   }
 
-  @Post('index/cancel')
+  @Post(API_ROUTES.cancelIndex)
   @HttpCode(HttpStatus.OK)
-  cancel(): { cancelled: boolean } {
+  cancel(): CancelIndexingResponse {
     return { cancelled: this.indexing.cancel() };
   }
 
-  @Delete('index')
+  @Delete(API_ROUTES.index)
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Query('path') path: string): Promise<void> {
-    return this.indexing.removeRoot(path);
+  remove(
+    @Query(new ZodValidationPipe(removeRootQuerySchema)) query: RemoveRootQuery,
+  ): Promise<void> {
+    return this.indexing.removeRoot(query.path);
   }
 
-  @Get('status')
+  @Get(API_ROUTES.status)
   status(): Promise<IndexStatus> {
     return this.indexing.getStatus();
   }
 
-  @Get('health')
-  health(): { status: 'ok'; uptime: number } {
+  @Get(API_ROUTES.health)
+  health(): HealthResponse {
     return { status: 'ok', uptime: Math.round(process.uptime()) };
   }
 }

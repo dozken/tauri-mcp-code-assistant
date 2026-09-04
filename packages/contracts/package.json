@@ -1,0 +1,35 @@
+{
+  "name": "@ai-code-companion/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Single source of truth for every type crossing a process boundary: HTTP bodies, Socket.IO events and MCP tool schemas.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.7",
+    "typescript": "5.7.3",
+    "vitest": "^3.2.7"
+  }
+}

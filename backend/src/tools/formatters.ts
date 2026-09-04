@@ -2,7 +2,7 @@ import type {
   ExplainFileResult,
   GenerateSnippetResult,
   SearchCodeResult,
-} from './tool-schemas.js';
+} from '@ai-code-companion/contracts';
 
 /**
  * Tool output is rendered once, here, and reused by the LangChain tools and the
@@ -15,8 +15,8 @@ import type {
  * so pick one longer than anything inside the snippet.
  */
 const fenceFor = (text: string): string => {
-  const longest = [...text.matchAll(/^\s*(`{3,})/gm)].reduce(
-    (max, match) => Math.max(max, match[1].length),
+  const longest = [...text.matchAll(/^[ \t]*(`{3,})/gm)].reduce(
+    (max, match) => Math.max(max, match[1]?.length ?? 0),
     2,
   );
   return '`'.repeat(longest + 1);
@@ -40,7 +40,9 @@ export const formatExplainResult = (result: ExplainFileResult): string => {
   const imports = result.imports.length > 0 ? result.imports.join(', ') : 'none';
   const symbols =
     result.symbols.length > 0
-      ? result.symbols.map((symbol) => `- ${symbol.kind} ${symbol.name} (line ${symbol.line})`).join('\n')
+      ? result.symbols
+          .map((symbol) => `- ${symbol.kind} ${symbol.name} (line ${symbol.line})`)
+          .join('\n')
       : '- none detected';
 
   return [

@@ -2,6 +2,7 @@ import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/com
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import type { Server } from 'socket.io';
 import type { Subscription } from 'rxjs';
+import { SOCKET_EVENTS } from '@ai-code-companion/contracts';
 import { IndexingService } from '../indexing/indexing.service.js';
 
 /**
@@ -21,7 +22,7 @@ export class EventsGateway implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     this.subscription = this.indexing.progress.subscribe((event) => {
-      this.server?.emit('index:progress', event);
+      this.server?.emit(SOCKET_EVENTS.indexProgress, event);
     });
   }
 

@@ -84,56 +84,81 @@ const toSegments = (content: string, maxLength: number): Segment[] => {
   return segments;
 };
 
+const assertValidOptions = ({ chunkSize, chunkOverlap }: ChunkOptions): void => {
+  if (!Number.isInteger(chunkSize) || chunkSize <= 0) {
+    throw new Error(`chunkSize must be a positive integer, received ${chunkSize}`);
+  }
+  if (chunkOverlap < 0 || chunkOverlap >= chunkSize) {
+    throw new Error(
+      `chunkOverlap must satisfy 0 <= overlap < chunkSize (${chunkSize}), received ${chunkOverlap}`,
+    );
+  }
+};
+
+/** Index one past the last segment that fits in `chunkSize`, always at least `start + 1`. */
+const findWindowEnd = (segments: readonly Segment[], start: number, chunkSize: number): number => {
+  let end = start;
+  let length = 0;
+
+  while (end < segments.length) {
+    const segment = segments[end];
+    if (segment === undefined) break;
+    // +1 for the newline this segment will be joined with.
+    const additional = segment.text.length + (end > start ? 1 : 0);
+    if (end > start && length + additional > chunkSize) break;
+    length += additional;
+    end += 1;
+  }
+
+  return Math.max(end, start + 1);
+};
+
+/**
+ * Where the next window starts: far enough back to overlap by `chunkOverlap`
+ * characters, but always at least one segment forward so the loop terminates
+ * however pathological the settings are.
+ */
+const findNextStart = (
+  segments: readonly Segment[],
+  start: number,
+  end: number,
+  chunkOverlap: number,
+): number => {
+  let cursor = end;
+  let overlap = 0;
+
+  while (cursor > start + 1 && overlap < chunkOverlap) {
+    overlap += (segments[cursor - 1]?.text.length ?? 0) + 1;
+    cursor -= 1;
+  }
+
+  return Math.max(cursor, start + 1);
+};
+
 /**
  * Line-aware greedy chunker with character overlap. Line boundaries are preserved
  * so a chunk can be cited back to the user as `file.ts:120-160`.
  */
 export const chunkText = (content: string, options: ChunkOptions): TextChunk[] => {
-  const { chunkSize, chunkOverlap } = options;
-  if (!Number.isInteger(chunkSize) || chunkSize <= 0) {
-    throw new Error(`chunkSize must be a positive integer, received ${chunkSize}`);
-  }
-  if (chunkOverlap < 0 || chunkOverlap >= chunkSize) {
-    throw new Error(`chunkOverlap must satisfy 0 <= overlap < chunkSize (${chunkSize}), received ${chunkOverlap}`);
-  }
+  assertValidOptions(options);
   if (content.trim().length === 0) return [];
 
-  const segments = toSegments(content, chunkSize);
+  const segments = toSegments(content, options.chunkSize);
   const chunks: TextChunk[] = [];
 
-  let start = 0;
-  while (start < segments.length) {
-    let end = start;
-    let length = 0;
-
-    // Always consume at least one segment so the loop cannot stall.
-    while (end < segments.length) {
-      const additional = segments[end].text.length + (end > start ? 1 : 0);
-      if (end > start && length + additional > chunkSize) break;
-      length += additional;
-      end += 1;
-    }
-
+  for (let start = 0; start < segments.length;) {
+    const end = findWindowEnd(segments, start, options.chunkSize);
     const window = segments.slice(start, end);
+    const first = window[0];
+    const last = window.at(-1);
     const text = window.map((segment) => segment.text).join('\n');
-    if (text.trim().length > 0) {
-      chunks.push({
-        text,
-        startLine: window[0].line,
-        endLine: window[window.length - 1].line,
-      });
+
+    if (first !== undefined && last !== undefined && text.trim().length > 0) {
+      chunks.push({ text, startLine: first.line, endLine: last.line });
     }
 
     if (end >= segments.length) break;
-
-    // Walk backwards to build the overlap, then guarantee forward progress.
-    let overlapStart = end;
-    let overlapLength = 0;
-    while (overlapStart > start + 1 && overlapLength < chunkOverlap) {
-      overlapLength += segments[overlapStart - 1].text.length + 1;
-      overlapStart -= 1;
-    }
-    start = Math.max(overlapStart, start + 1);
+    start = findNextStart(segments, start, end, options.chunkOverlap);
   }
 
   return chunks;

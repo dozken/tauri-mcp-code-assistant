@@ -17,14 +17,16 @@ import { VectorStoreService } from '../vector/vector-store.service.js';
 import type { CodeChunk } from '../vector/vector-store.types.js';
 import { chunkText, detectLanguage } from './chunker.js';
 import { walkFiles, type WalkedFile } from './file-walker.js';
+import { toProgressEvent } from './progress.js';
 import type {
   IndexJob,
   IndexProgressEvent,
   IndexStatus,
   IndexedRoot,
-} from './indexing.types.js';
+} from '@ai-code-companion/contracts';
 
 const PROGRESS_INTERVAL_MS = 100;
+// eslint-disable-next-line unicorn/prefer-code-point -- a NUL is a code unit, not a code point.
 const NUL_BYTE = String.fromCharCode(0);
 
 @Injectable()
@@ -103,8 +105,8 @@ export class IndexingService implements OnModuleInit {
 
   async getStatus(): Promise<IndexStatus> {
     return {
-      activeJob: this.activeJob,
-      roots: [...this.roots.values()].sort((a, b) => a.path.localeCompare(b.path)),
+      activeJob: this.activeJob === null ? null : toProgressEvent(this.activeJob),
+      roots: [...this.roots.values()].toSorted((a, b) => a.path.localeCompare(b.path)),
       vectorStore: this.vectorStore.kind,
       metadataStore: this.metadata.kind,
       totalChunks: await this.vectorStore.count().catch(() => 0),
@@ -190,11 +192,10 @@ export class IndexingService implements OnModuleInit {
 
     const worker = async (): Promise<void> => {
       while (!signal.aborted) {
-        const index = cursor;
+        const file = files[cursor];
         cursor += 1;
-        if (index >= files.length) return;
+        if (file === undefined) return;
 
-        const file = files[index];
         job.currentFile = file.relativePath;
         try {
           const chunks = await this.chunkFile(job.root, file);
@@ -227,6 +228,7 @@ export class IndexingService implements OnModuleInit {
       chunkSize: this.config.indexing.chunkSize,
       chunkOverlap: this.config.indexing.chunkOverlap,
     }).map((chunk) => ({
+      // eslint-disable-next-line sonarjs/hashing -- a content address, not a credential.
       id: createHash('sha1')
         .update(`${root}::${file.relativePath}::${chunk.startLine}-${chunk.endLine}`)
         .digest('hex'),
@@ -248,19 +250,6 @@ export class IndexingService implements OnModuleInit {
     if (!force && now - this.lastEmit < PROGRESS_INTERVAL_MS) return;
     this.lastEmit = now;
 
-    this.progressSubject.next({
-      jobId: job.id,
-      root: job.root,
-      state: job.state,
-      filesDiscovered: job.filesDiscovered,
-      filesIndexed: job.filesIndexed,
-      chunksIndexed: job.chunksIndexed,
-      currentFile: job.currentFile,
-      error: job.error,
-      percent:
-        job.filesDiscovered === 0
-          ? 0
-          : Math.round((job.filesIndexed / job.filesDiscovered) * 100),
-    });
+    this.progressSubject.next(toProgressEvent(job));
   }
 }

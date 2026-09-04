@@ -28,11 +28,14 @@ describe('HashingEmbeddings', () => {
   const embeddings = new HashingEmbeddings({ dimensions: 64 });
 
   it('produces deterministic unit vectors of the configured size', async () => {
-    const [a, b] = await embeddings.embedDocuments(['export const sum = 1', 'export const sum = 1']);
+    const [a, b] = await embeddings.embedDocuments([
+      'export const sum = 1',
+      'export const sum = 1',
+    ]);
 
     expect(a).toHaveLength(64);
     expect(a).toEqual(b);
-    expect(Math.hypot(...a)).toBeCloseTo(1, 6);
+    expect(Math.hypot(...a!)).toBeCloseTo(1, 6);
   });
 
   it('returns a finite zero vector for text with no usable tokens', async () => {
@@ -54,7 +57,7 @@ describe('HashingEmbeddings', () => {
       'const PI = 3.14159;',
     ]);
 
-    expect(cosineSimilarity(query, related)).toBeGreaterThan(cosineSimilarity(query, unrelated));
+    expect(cosineSimilarity(query, related!)).toBeGreaterThan(cosineSimilarity(query, unrelated!));
   });
 });
 
@@ -70,7 +73,7 @@ describe('MemoryVectorStore', () => {
     expect(await store.count()).toBe(3);
 
     const results = await store.search('authenticate user', { limit: 2 });
-    expect(results[0].id).toBe('auth');
+    expect(results[0]!.id).toBe('auth');
     expect(results).toHaveLength(2);
 
     const scoped = await store.search('authenticate user', { root: '/elsewhere' });
@@ -83,7 +86,7 @@ describe('MemoryVectorStore', () => {
     await store.upsert([chunk('a', 'second version')]);
 
     expect(await store.count()).toBe(1);
-    expect((await store.search('version'))[0].text).toBe('second version');
+    expect((await store.search('version'))[0]!.text).toBe('second version');
   });
 
   it('deletes every chunk under a root', async () => {

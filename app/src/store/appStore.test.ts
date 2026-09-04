@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { initialState, useAppStore } from './appStore';
-import type { IndexProgressEvent, IndexStatus, ToolInvocation } from '../types';
+import type { IndexProgressEvent, IndexStatus, ToolInvocation } from '@ai-code-companion/contracts';
 
 // Merge (not replace): a replacing setState would wipe the actions too.
 const reset = (): void => useAppStore.setState({ ...initialState, messages: [] });
@@ -17,7 +17,13 @@ const toolCall = (overrides: Partial<ToolInvocation> = {}): ToolInvocation => ({
 const status = (overrides: Partial<IndexStatus> = {}): IndexStatus => ({
   activeJob: null,
   roots: [
-    { path: '/repo', fileCount: 3, chunkCount: 9, lastIndexedAt: '2026-01-01T00:00:00Z', stale: false },
+    {
+      path: '/repo',
+      fileCount: 3,
+      chunkCount: 9,
+      lastIndexedAt: '2026-01-01T00:00:00Z',
+      stale: false,
+    },
   ],
   vectorStore: 'chroma',
   metadataStore: 'sqlite',
@@ -71,7 +77,7 @@ describe('appStore', () => {
       streaming: false,
       content: 'Found it. See src/auth.ts:1-10',
     });
-    expect(final.messages[1].toolCalls).toHaveLength(1);
+    expect(final.messages[1]!.toolCalls).toHaveLength(1);
   });
 
   it('keeps the streamed text when `done` carries no message', () => {
@@ -80,7 +86,7 @@ describe('appStore', () => {
     store.appendToken('partial');
     store.completeAssistantMessage();
 
-    expect(useAppStore.getState().messages[0].content).toBe('partial');
+    expect(useAppStore.getState().messages[0]!.content).toBe('partial');
   });
 
   it('ignores tokens that arrive after the turn finished', () => {
@@ -92,8 +98,8 @@ describe('appStore', () => {
     useAppStore.getState().appendToken(' late');
     useAppStore.getState().addToolCall(toolCall({ name: 'explain_file' }));
 
-    expect(useAppStore.getState().messages[0].content).toBe('done');
-    expect(useAppStore.getState().messages[0].toolCalls).toHaveLength(0);
+    expect(useAppStore.getState().messages[0]!.content).toBe('done');
+    expect(useAppStore.getState().messages[0]!.toolCalls).toHaveLength(0);
   });
 
   it('records an error on the streaming message and stops streaming', () => {

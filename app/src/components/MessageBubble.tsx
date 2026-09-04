@@ -16,11 +16,23 @@ export interface MessageBubbleProps {
   message: ChatMessage;
 }
 
-interface Segment {
-  kind: 'text' | 'code';
+/** A union, so a prose segment cannot accidentally carry a language. */
+export type Segment =
+  { kind: 'text'; content: string } | { kind: 'code'; language?: string; content: string };
+
+/** A fence line on its own: optional indent, three-or-more backticks, optional info string. */
+const FENCE_LINE = /^[ \t]*(`{3,})([\w+-]*)[ \t]*$/;
+
+interface Fence {
+  marker: string;
   language?: string;
-  content: string;
 }
+
+const matchFence = (line: string): Fence | undefined => {
+  const match = FENCE_LINE.exec(line);
+  if (match?.[1] === undefined) return undefined;
+  return { marker: match[1], language: match[2] === '' ? undefined : match[2] };
+};
 
 /**
  * Splits an answer into prose and fenced code blocks.
@@ -28,24 +40,51 @@ interface Segment {
  * A full Markdown renderer is overkill here: the only structure the agent emits is
  * ``` fences around retrieved snippets, and keeping the parser inline avoids
  * shipping a Markdown dependency (and its sanitiser) into the webview.
+ *
+ * Scanned line by line rather than with one big regex. A lazy `([\s\S]*?)` closed
+ * by a backreference is quadratic on unbalanced input, and this runs on every
+ * render of every streamed token — so a half-typed fence would be re-scanned
+ * hundreds of times per answer.
  */
 export const splitFences = (content: string): Segment[] => {
   const segments: Segment[] = [];
-  // The backreference matches a closing fence of the same length, so a snippet
-  // wrapped in ```` (because it contains ``` itself) is not cut short.
-  const pattern = /(`{3,})([\w+-]*)\n?([\s\S]*?)(?:\1|$)/g;
-  let cursor = 0;
+  const buffer: string[] = [];
+  let fence: Fence | undefined;
 
-  for (let match = pattern.exec(content); match !== null; match = pattern.exec(content)) {
-    if (match.index > cursor) {
-      segments.push({ kind: 'text', content: content.slice(cursor, match.index) });
+  const flush = (kind: Segment['kind'], language?: string): void => {
+    const text = buffer.join('\n');
+    if (text.trim().length > 0) {
+      segments.push(kind === 'code' ? { kind, language, content: text } : { kind, content: text });
     }
-    segments.push({ kind: 'code', language: match[2] || undefined, content: match[3] });
-    cursor = match.index + match[0].length;
+    buffer.length = 0;
+  };
+
+  for (const line of content.split('\n')) {
+    if (fence === undefined) {
+      const opener = matchFence(line);
+      if (opener) {
+        flush('text');
+        fence = opener;
+        continue;
+      }
+      buffer.push(line);
+      continue;
+    }
+
+    // Only a fence at least as long as the opener closes it, so an inner ``` inside
+    // a ```` block stays part of the snippet.
+    const closer = matchFence(line);
+    if (closer && closer.marker.length >= fence.marker.length && closer.language === undefined) {
+      flush('code', fence.language);
+      fence = undefined;
+      continue;
+    }
+    buffer.push(line);
   }
 
-  if (cursor < content.length) segments.push({ kind: 'text', content: content.slice(cursor) });
-  return segments.filter((segment) => segment.content.trim().length > 0);
+  // An unterminated fence is the normal mid-stream state, not an error.
+  flush(fence === undefined ? 'text' : 'code', fence?.language);
+  return segments;
 };
 
 export const MessageBubble = ({ message }: MessageBubbleProps) => {
@@ -136,17 +175,17 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
           ),
         )}
 
-        {message.streaming && segments.length === 0 && (
+        {message.streaming && segments.length === 0 ? (
           <Typography variant="body2" color="text.secondary">
             Thinking…
           </Typography>
-        )}
+        ) : null}
 
-        {message.error && (
+        {message.error ? (
           <Alert severity="error" sx={{ mt: 1 }} variant="outlined">
             {message.error}
           </Alert>
-        )}
+        ) : null}
       </Paper>
     </Stack>
   );

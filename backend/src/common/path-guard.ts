@@ -2,7 +2,7 @@ import { stat, realpath } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
-export const isWithinRoots = (candidate: string, allowedRoots: readonly string[]): boolean =>
+const isWithinRoots = (candidate: string, allowedRoots: readonly string[]): boolean =>
   allowedRoots.some((root) => candidate === root || candidate.startsWith(root + sep));
 
 /**

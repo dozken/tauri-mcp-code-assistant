@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import type { INestApplication } from '@nestjs/common';
@@ -32,9 +31,6 @@ const bootstrap = async (): Promise<void> => {
   app.useLogger(app.get(Logger));
   app.useWebSocketAdapter(new ConfiguredIoAdapter(app, config.corsOrigins));
   app.enableCors({ origin: config.corsOrigins, credentials: true });
-  app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
-  );
   app.enableShutdownHooks();
 
   // Loopback by default: this is a desktop companion, not a shared service, and the

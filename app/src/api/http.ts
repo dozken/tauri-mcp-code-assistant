@@ -1,7 +1,16 @@
+import {
+  API_ROUTES,
+  cancelIndexingResponseSchema,
+  indexJobSchema,
+  indexStatusSchema,
+  type CancelIndexingResponse,
+  type IndexJob,
+  type IndexStatus,
+} from '@ai-code-companion/contracts';
+import type { ZodType } from 'zod';
 import { BACKEND_URL } from './config';
-import type { IndexStatus } from '../types';
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
@@ -11,11 +20,25 @@ class HttpError extends Error {
   }
 }
 
-const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${BACKEND_URL}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+/** The response did not match the contract — usually app/backend version skew. */
+export class ContractError extends Error {
+  constructor(path: string, detail: string) {
+    super(`${path} returned data that does not match the contract: ${detail}`);
+    this.name = 'ContractError';
+  }
+}
+
+const request = async <T>(
+  path: string,
+  schema: ZodType<T> | undefined,
+  init?: RequestInit,
+): Promise<T> => {
+  // `HeadersInit` may be an object, a tuple list or a `Headers`; spreading it into
+  // an object literal turns the last two into `{0: [...], 1: [...]}`.
+  const headers = new Headers(init?.headers);
+  headers.set('Content-Type', 'application/json');
+
+  const response = await fetch(`${BACKEND_URL}${path}`, { ...init, headers });
 
   if (!response.ok) {
     // Nest returns `{ statusCode, message }`; surface that instead of "500".
@@ -28,18 +51,28 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
     throw new HttpError(detail ?? `${response.status} ${response.statusText}`, response.status);
   }
 
-  return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+  if (schema === undefined || response.status === 204) return undefined as T;
+
+  // Validating here rather than trusting the cast means a backend that drifts
+  // fails loudly at the boundary instead of rendering `undefined` deep in the UI.
+  const parsed = schema.safeParse(await response.json());
+  if (!parsed.success) {
+    throw new ContractError(path, parsed.error.issues.map((issue) => issue.message).join(', '));
+  }
+  return parsed.data;
 };
 
-export const fetchStatus = (): Promise<IndexStatus> => request<IndexStatus>('/status');
+export const fetchStatus = (): Promise<IndexStatus> =>
+  request(API_ROUTES.status, indexStatusSchema);
 
-export const startIndexing = (path: string): Promise<{ id: string; root: string }> =>
-  request('/index', { method: 'POST', body: JSON.stringify({ path }) });
+export const startIndexing = (path: string): Promise<IndexJob> =>
+  request(API_ROUTES.index, indexJobSchema, {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  });
 
-export const cancelIndexing = (): Promise<{ cancelled: boolean }> =>
-  request('/index/cancel', { method: 'POST' });
+export const cancelIndexing = (): Promise<CancelIndexingResponse> =>
+  request(API_ROUTES.cancelIndex, cancelIndexingResponseSchema, { method: 'POST' });
 
 export const removeRoot = (path: string): Promise<void> =>
-  request(`/index?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
-
-export { HttpError };
+  request(`${API_ROUTES.index}?path=${encodeURIComponent(path)}`, undefined, { method: 'DELETE' });

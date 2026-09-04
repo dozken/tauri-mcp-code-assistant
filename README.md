@@ -37,7 +37,7 @@ docker run -p 8000:8000 chromadb/chroma
 
 With no server reachable the app logs a warning and falls back to an in-memory store —
 usable immediately, but the index is lost on restart (folders are then flagged
-*needs re-index* in the sidebar).
+_needs re-index_ in the sidebar).
 
 ### Optional: a real model
 
@@ -116,8 +116,8 @@ Copy `.env.example` for the full list of settings.
 
 ### HTTP API
 
-| Method   | Path            | Body / Query        | Notes                                        |
-| -------- | --------------- | ------------------- | -------------------------------------------- |
+| Method   | Path            | Body / Query        | Notes                                         |
+| -------- | --------------- | ------------------- | --------------------------------------------- |
 | `POST`   | `/index`        | `{ "path": "..." }` | `202` — returns the job; progress via socket  |
 | `POST`   | `/index/cancel` | –                   | Aborts the running job                        |
 | `DELETE` | `/index`        | `?path=...`         | `204` — drops the folder's chunks             |
@@ -160,11 +160,11 @@ npm run build --workspace backend
 
 Tools exposed:
 
-| Tool               | Input                                | Returns                                                   |
-| ------------------ | ------------------------------------ | --------------------------------------------------------- |
-| `search_code`      | `query`, `limit?`, `root?`           | Ranked snippets with `path:startLine-endLine` and scores   |
-| `explain_file`     | `path`                               | Language, size, imports, top-level symbols, a summary      |
-| `generate_snippet` | `prompt`, `language?`                | A starter scaffold (template-generated, clearly labelled)  |
+| Tool               | Input                      | Returns                                                   |
+| ------------------ | -------------------------- | --------------------------------------------------------- |
+| `search_code`      | `query`, `limit?`, `root?` | Ranked snippets with `path:startLine-endLine` and scores  |
+| `explain_file`     | `path`                     | Language, size, imports, top-level symbols, a summary     |
+| `generate_snippet` | `prompt`, `language?`      | A starter scaffold (template-generated, clearly labelled) |
 
 Each returns both human-readable text **and** `structuredContent` validated against a declared
 output schema.
@@ -179,8 +179,8 @@ Two things worth knowing:
 
 ### Sharing an index with the editor
 
-`search_code` reads whatever vector store the process can reach. The MCP server is a *separate
-process* from the backend, so they only share an index when both talk to a running ChromaDB.
+`search_code` reads whatever vector store the process can reach. The MCP server is a _separate
+process_ from the backend, so they only share an index when both talk to a running ChromaDB.
 With the in-memory fallback each process has its own (empty) index. Start Chroma if you want
 your editor to search what the app indexed.
 
@@ -205,16 +205,16 @@ npm run mutation          # Stryker on the backend
 npm run typecheck         # tsc --noEmit in both workspaces
 ```
 
-| Suite                                     | Covers                                                            |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| `backend/src/indexing/*.spec.ts`          | Chunker edge cases, walk/gitignore/binary skipping, job lifecycle, path allow-list |
-| `backend/src/vector/embeddings.spec.ts`   | Hashing embeddings, cosine ranking, in-memory store semantics      |
-| `backend/src/tools/*.spec.ts`             | All three tools, including the "nothing indexed" and refusal paths |
-| `backend/src/chat/chat.service.spec.ts`   | The agent loop: retrieve → observe → stream, and tool-failure recovery |
-| `backend/test/mcp-server.spec.ts`         | Real MCP `initialize`/`tools/list`/`tools/call` over an in-memory transport |
-| `app/src/store/appStore.test.ts`          | Streaming state machine, late-event handling, status reconciliation |
-| `app/src/components/ChatPanel.test.tsx`   | Composer behaviour, fence rendering, tool chips, error surfacing    |
-| `app/e2e/chat.spec.ts`                    | Ask → answer, index → cite, and a rejected path                     |
+| Suite                                   | Covers                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------------- |
+| `backend/src/indexing/*.spec.ts`        | Chunker edge cases, walk/gitignore/binary skipping, job lifecycle, path allow-list |
+| `backend/src/vector/embeddings.spec.ts` | Hashing embeddings, cosine ranking, in-memory store semantics                      |
+| `backend/src/tools/*.spec.ts`           | All three tools, including the "nothing indexed" and refusal paths                 |
+| `backend/src/chat/chat.service.spec.ts` | The agent loop: retrieve → observe → stream, and tool-failure recovery             |
+| `backend/test/mcp-server.spec.ts`       | Real MCP `initialize`/`tools/list`/`tools/call` over an in-memory transport        |
+| `app/src/store/appStore.test.ts`        | Streaming state machine, late-event handling, status reconciliation                |
+| `app/src/components/ChatPanel.test.tsx` | Composer behaviour, fence rendering, tool chips, error surfacing                   |
+| `app/e2e/chat.spec.ts`                  | Ask → answer, index → cite, and a rejected path                                    |
 
 Playwright uses the browser build of the same React app (Tauri's webview is not automatable);
 the desktop shell is covered by `npm run tauri:build`. On a machine with a preinstalled
@@ -260,8 +260,8 @@ The backend reads local files, so:
 
 What it does **not** do yet, and would need before shipping:
 
-- **No authentication on the local API.** CORS stops another origin from *reading* responses, but
-  not from *sending* a simple cross-origin `POST`. A shared secret in a header (issued by the
+- **No authentication on the local API.** CORS stops another origin from _reading_ responses, but
+  not from _sending_ a simple cross-origin `POST`. A shared secret in a header (issued by the
   Tauri shell) or an `Origin` allow-list middleware would close it.
 - **`explain_file` will read any file inside an allowed root**, `.env` included. Indexing honours
   `.gitignore`; this tool deliberately does not, because you may want to explain an ignored file.

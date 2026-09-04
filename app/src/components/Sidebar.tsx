@@ -21,16 +21,16 @@ import AddIcon from '@mui/icons-material/CreateNewFolder';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useAppStore } from '../store/appStore';
-import { removeRoot } from '../api/http';
+import { cancelIndexing, removeRoot } from '../api/http';
 import { getAppInfo, pickFolder, type AppInfo } from '../api/tauri';
 import { MONOSPACE } from '../theme';
 
 export interface SidebarProps {
-  onIndexFolder(path: string): void | Promise<void>;
-  onRefresh(): void | Promise<void>;
+  onIndexFolder: (path: string) => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
 }
 
-const basename = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+const basename = (path: string): string => path.split(/[\\/]/).findLast(Boolean) ?? path;
 
 export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
   const roots = useAppStore((state) => state.roots);
@@ -45,7 +45,9 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
 
   useEffect(() => {
     // Resolves to undefined in the browser build, which hides the footer.
-    void getAppInfo().then(setAppInfo).catch(() => undefined);
+    void getAppInfo()
+      .then(setAppInfo)
+      .catch(() => undefined);
   }, []);
 
   const handleAdd = async (): Promise<void> => {
@@ -63,6 +65,12 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
     setManualOpen(false);
     setManualPath('');
     if (path) await onIndexFolder(path);
+  };
+
+  const handleCancel = (): void => {
+    void cancelIndexing().catch((error: unknown) => {
+      setError(error instanceof Error ? error.message : String(error));
+    });
   };
 
   const handleRemove = async (path: string): Promise<void> => {
@@ -101,24 +109,35 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
         </Stack>
       </Box>
 
-      {activeJob && (
+      {activeJob ? (
         <Box sx={{ px: 2, pb: 1 }} data-testid="index-progress">
           <Typography variant="caption" color="text.secondary" noWrap>
-            Indexing {basename(activeJob.root)} — {activeJob.filesIndexed}/{activeJob.filesDiscovered} files,{' '}
-            {activeJob.chunksIndexed} chunks
+            Indexing {basename(activeJob.root)} — {activeJob.filesIndexed}/
+            {activeJob.filesDiscovered} files, {activeJob.chunksIndexed} chunks
           </Typography>
           <LinearProgress
             variant={activeJob.filesDiscovered > 0 ? 'determinate' : 'indeterminate'}
             value={activeJob.percent}
             sx={{ mt: 0.5 }}
           />
-          {activeJob.currentFile && (
-            <Typography variant="caption" sx={{ fontFamily: MONOSPACE }} noWrap display="block">
-              {activeJob.currentFile}
-            </Typography>
-          )}
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 0.5 }}>
+            {activeJob.currentFile ? (
+              <Typography
+                variant="caption"
+                sx={{ fontFamily: MONOSPACE, flex: 1, minWidth: 0 }}
+                noWrap
+              >
+                {activeJob.currentFile}
+              </Typography>
+            ) : (
+              <Box sx={{ flex: 1 }} />
+            )}
+            <Button size="small" color="inherit" onClick={handleCancel} data-testid="cancel-index">
+              Cancel
+            </Button>
+          </Stack>
         </Box>
-      )}
+      ) : null}
 
       <Divider />
 
@@ -157,13 +176,18 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
                 primary={basename(root.path)}
                 secondary={
                   <>
-                    <Typography variant="caption" sx={{ fontFamily: MONOSPACE }} noWrap display="block">
+                    <Typography
+                      variant="caption"
+                      sx={{ fontFamily: MONOSPACE }}
+                      noWrap
+                      display="block"
+                    >
                       {root.path}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {root.fileCount} files · {root.chunkCount} chunks
                     </Typography>
-                    {root.stale && (
+                    {root.stale ? (
                       <Chip
                         size="small"
                         color="warning"
@@ -171,7 +195,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
                         label="needs re-index"
                         sx={{ ml: 1, height: 18 }}
                       />
-                    )}
+                    ) : null}
                   </>
                 }
                 slotProps={{ secondary: { component: 'span' } }}
@@ -181,7 +205,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
         ))}
       </List>
 
-      {appInfo && (
+      {appInfo ? (
         <>
           <Divider />
           <Box sx={{ px: 2, py: 1 }}>
@@ -190,7 +214,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
             </Typography>
           </Box>
         </>
-      )}
+      ) : null}
 
       <Dialog open={manualOpen} onClose={() => setManualOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Index a folder</DialogTitle>
@@ -200,6 +224,9 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
             instead.
           </Typography>
           <TextField
+            // A modal's first field is the documented exception to no-autofocus:
+            // focus has to move into the dialog for keyboard users.
+            // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
             fullWidth
             margin="dense"
@@ -215,7 +242,11 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setManualOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={() => void submitManual()} data-testid="manual-path-submit">
+          <Button
+            variant="contained"
+            onClick={() => void submitManual()}
+            data-testid="manual-path-submit"
+          >
             Index
           </Button>
         </DialogActions>

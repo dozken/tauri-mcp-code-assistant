@@ -1,0 +1,41 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["eslint.config.js", ".dependency-cruiser.cjs"],
+      "project": ["*.{js,cjs,ts}"]
+    },
+    "packages/contracts": {
+      "entry": ["src/index.ts", "vitest.config.ts"],
+      "project": ["src/**/*.ts", "*.config.ts"],
+      "includeEntryExports": false
+    },
+    "backend": {
+      "entry": ["src/main.ts", "src/mcp-server.ts", "src/**/*.spec.ts", "test/**/*.spec.ts", "vitest.config.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
+      "ignoreDependencies": [
+        "@nestjs/platform-express",
+        "@nestjs/platform-socket.io",
+        "@langchain/langgraph",
+        "pino-http",
+        "pino-pretty",
+        "sqlite3"
+      ]
+    },
+    "app": {
+      "entry": [
+        "src/main.tsx",
+        "src/**/*.test.{ts,tsx}",
+        "e2e/**/*.spec.ts",
+        "vite.config.ts",
+        "vitest.config.ts",
+        "playwright.config.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts", "*.config.ts"],
+      "ignoreDependencies": ["@emotion/react", "@emotion/styled"]
+    }
+  },
+  "ignore": ["app/src-tauri/**", "**/dist/**", "**/coverage/**", "**/reports/**"],
+  "ignoreBinaries": ["cargo", "depcruise", "stryker", "tauri"],
+  "includeEntryExports": true
+}

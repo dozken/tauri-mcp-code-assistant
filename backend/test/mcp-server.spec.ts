@@ -25,7 +25,8 @@ describe('MCP server', () => {
   beforeEach(async () => {
     root = await realpath(await mkdtemp(join(tmpdir(), 'companion-mcp-')));
     const file = join(root, 'auth.ts');
-    const source = 'export function authenticateUser(token: string) {\n  return token.length > 0;\n}\n';
+    const source =
+      'export function authenticateUser(token: string) {\n  return token.length > 0;\n}\n';
     await writeFile(file, source);
 
     const store = new MemoryVectorStore(new HashingEmbeddings({ dimensions: 128 }));
@@ -72,7 +73,7 @@ describe('MCP server', () => {
   it('advertises the three tools with input schemas', async () => {
     const { tools } = await client.listTools();
 
-    expect(tools.map((tool) => tool.name).sort()).toEqual([
+    expect(tools.map((tool) => tool.name).toSorted((a, b) => a.localeCompare(b))).toEqual([
       'explain_file',
       'generate_snippet',
       'search_code',
@@ -89,9 +90,9 @@ describe('MCP server', () => {
     });
 
     expect(result.isError).toBeFalsy();
-    const [content] = result.content as Array<{ type: string; text: string }>;
-    expect(content.type).toBe('text');
-    expect(content.text).toContain('auth.ts:1-3');
+    const [content] = result.content as { type: string; text: string }[];
+    expect(content).toMatchObject({ type: 'text' });
+    expect(content?.text).toContain('auth.ts:1-3');
     expect(result.structuredContent).toMatchObject({ query: 'authenticate user' });
   });
 

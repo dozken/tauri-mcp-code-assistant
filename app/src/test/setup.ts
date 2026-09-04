@@ -8,5 +8,8 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
 
-globalThis.scrollTo ??= (() => {}) as typeof globalThis.scrollTo;
-Element.prototype.scrollIntoView ??= function scrollIntoView(): void {};
+globalThis.scrollTo ??= (() => undefined) as typeof globalThis.scrollTo;
+// eslint-disable-next-line @typescript-eslint/unbound-method -- assigning a prototype stub.
+Element.prototype.scrollIntoView ??= function scrollIntoView(): void {
+  return undefined;
+};

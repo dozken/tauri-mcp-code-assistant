@@ -17,9 +17,9 @@ const renderPanel = (onSend: (message: string) => void) =>
 describe('splitFences', () => {
   it('separates prose from fenced code and records the language', () => {
     expect(splitFences('Here:\n```ts\nconst a = 1;\n```\nDone.')).toEqual([
-      { kind: 'text', content: 'Here:\n' },
-      { kind: 'code', language: 'ts', content: 'const a = 1;\n' },
-      { kind: 'text', content: '\nDone.' },
+      { kind: 'text', content: 'Here:' },
+      { kind: 'code', language: 'ts', content: 'const a = 1;' },
+      { kind: 'text', content: 'Done.' },
     ]);
   });
 
@@ -31,12 +31,35 @@ describe('splitFences', () => {
 
   it('keeps an inner ``` intact inside a widened fence', () => {
     expect(splitFences('````md\nSee:\n```ts\nconst a = 1;\n```\n````')).toEqual([
-      { kind: 'code', language: 'md', content: 'See:\n```ts\nconst a = 1;\n```\n' },
+      { kind: 'code', language: 'md', content: 'See:\n```ts\nconst a = 1;\n```' },
+    ]);
+  });
+
+  it('does not close a ```` block on a shorter inner fence', () => {
+    const segments = splitFences('````\n```\nstill inside\n```\n````');
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]!.content).toBe('```\nstill inside\n```');
+  });
+
+  it('ignores a fence-like sequence that is not alone on its line', () => {
+    expect(splitFences('```ts\nconst fence = "```";\n```')).toEqual([
+      { kind: 'code', language: 'ts', content: 'const fence = "```";' },
+    ]);
+  });
+
+  it('omits the language when the fence carries no info string', () => {
+    expect(splitFences('```\nplain\n```')).toEqual([
+      { kind: 'code', language: undefined, content: 'plain' },
     ]);
   });
 
   it('treats plain text as a single segment', () => {
     expect(splitFences('just words')).toEqual([{ kind: 'text', content: 'just words' }]);
+  });
+
+  it('drops whitespace-only segments', () => {
+    expect(splitFences('   \n\n  ')).toEqual([]);
   });
 });
 

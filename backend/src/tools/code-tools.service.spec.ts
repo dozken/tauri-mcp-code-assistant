@@ -83,13 +83,15 @@ describe('CodeToolsService', () => {
         startLine: 1,
         endLine: 19,
       });
-      expect(result.matches[0].score).toBeGreaterThan(0);
+      expect(result.matches[0]!.score).toBeGreaterThan(0);
     });
 
     it('formats an empty result as actionable guidance rather than silence', async () => {
       const empty = await new CodeToolsService(
         testConfig(),
-        new MemoryVectorStore(new HashingEmbeddings({ dimensions: 32 })) as unknown as VectorStoreService,
+        new MemoryVectorStore(
+          new HashingEmbeddings({ dimensions: 32 }),
+        ) as unknown as VectorStoreService,
       ).searchCode({ query: 'anything' });
 
       expect(empty.matches).toEqual([]);
@@ -137,7 +139,10 @@ describe('CodeToolsService', () => {
 
   describe('generate_snippet', () => {
     it('returns a language-appropriate scaffold', async () => {
-      const result = await tools.generateSnippet({ prompt: 'debounce a callback', language: 'python' });
+      const result = await tools.generateSnippet({
+        prompt: 'debounce a callback',
+        language: 'python',
+      });
 
       expect(result.language).toBe('python');
       expect(result.code).toContain('def run(');

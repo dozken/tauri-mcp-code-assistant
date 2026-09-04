@@ -13,7 +13,7 @@ import {
   generateSnippetShape,
   searchCodeOutputShape,
   searchCodeShape,
-} from '../tools/tool-schemas.js';
+} from '@ai-code-companion/contracts';
 
 /**
  * Publishes {@link CodeToolsService} over MCP. The same service instance backs the

@@ -6,7 +6,7 @@ import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { CodeToolsService } from '../tools/code-tools.service.js';
 import { createLangChainTools } from '../tools/langchain-tools.js';
 
-export const MCP_SERVER_NAME = 'ai-code-companion';
+const MCP_SERVER_NAME = 'ai-code-companion';
 
 /**
  * Supplies the agent's toolbelt.
@@ -40,7 +40,10 @@ export class McpToolsService implements OnModuleDestroy {
   private async load(): Promise<StructuredToolInterface[]> {
     const local = createLangChainTools(this.codeTools);
     if (!this.config.mcp.clientEnabled) {
-      this.logger.info({ tools: local.map((tool) => tool.name) }, 'Using in-process LangChain tools');
+      this.logger.info(
+        { tools: local.map((tool) => tool.name) },
+        'Using in-process LangChain tools',
+      );
       return local;
     }
 

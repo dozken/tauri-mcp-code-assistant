@@ -18,6 +18,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@ai-code-companion/contracts": "*",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.11",
@@ -27,6 +28,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "socket.io-client": "^4.8.3",
+    "zod": "^3.25.76",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -39,6 +41,7 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react-swc": "^4.2.0",
+    "@vitest/coverage-v8": "^3.2.7",
     "jsdom": "^26.1.0",
     "typescript": "5.7.3",
     "vite": "^7.3.6",

@@ -27,20 +27,27 @@ export class MemoryMetadataStore implements MetadataStore {
   }
 
   async listRoots(): Promise<IndexedRootRecord[]> {
-    return [...this.roots.values()].sort((a, b) => a.path.localeCompare(b.path));
+    return [...this.roots.values()].toSorted((a, b) => a.path.localeCompare(b.path));
   }
 
   async removeRoot(path: string): Promise<void> {
     this.roots.delete(path);
   }
 
-  async close(): Promise<void> {}
+  // Nothing to release: the map dies with the process.
+  async close(): Promise<void> {
+    return undefined;
+  }
 }
 
 /** Minimal promise wrapper over the callback-based `sqlite3` driver. */
 interface SqliteDatabase {
   run(sql: string, params: unknown[], callback: (error: Error | null) => void): void;
-  all(sql: string, params: unknown[], callback: (error: Error | null, rows: unknown[]) => void): void;
+  all(
+    sql: string,
+    params: unknown[],
+    callback: (error: Error | null, rows: unknown[]) => void,
+  ): void;
   close(callback: (error: Error | null) => void): void;
 }
 

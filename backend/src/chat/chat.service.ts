@@ -10,7 +10,10 @@ import {
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages';
+import type { MessageContent } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
+import type { Runnable } from '@langchain/core/runnables';
+import type { BaseLanguageModelInput } from '@langchain/core/language_models/base';
 import { CHAT_MODEL } from '../llm/llm.module.js';
 import { messageText } from '../llm/stub-chat-model.js';
 import { McpToolsService } from '../mcp/mcp-tools.service.js';
@@ -19,10 +22,26 @@ import type {
   ChatResponse,
   ChatStreamEvent,
   ToolInvocation,
-} from './chat.types.js';
+} from '@ai-code-companion/contracts';
+
+/** Either the bare model or the same model with tools bound; both stream chunks. */
+type ChatModelLike = Runnable<BaseLanguageModelInput, AIMessageChunk>;
 
 const MAX_TOOL_STEPS = 4;
 const MAX_TOOL_RESULT_CHARS = 8000;
+
+/**
+ * A LangChain tool returns a string, or a `ToolMessage` when it was invoked with a
+ * tool call. `invoke` is typed `any`, so the narrowing happens once, here.
+ */
+const toolOutputText = (output: unknown): string => {
+  if (typeof output === 'string') return output;
+  if (output !== null && typeof output === 'object' && 'content' in output) {
+    return messageText((output as { content: MessageContent }).content);
+  }
+  // `JSON.stringify(undefined)` is `undefined` at runtime despite its `string` type.
+  return JSON.stringify(output ?? null);
+};
 
 const SYSTEM_PROMPT = `You are the AI Code Companion, embedded in a desktop app that has indexed the user's local codebase.
 
@@ -79,45 +98,23 @@ export class ChatService {
       const messages = this.buildMessages(request);
 
       for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
-        let gathered: AIMessageChunk | undefined;
+        // `yield*` forwards every token to the caller and hands back the turn's
+        // reassembled reply — tool calls arrive as fragments and only exist once
+        // the stream ends.
+        const turn = yield* this.streamTurn(bound, messages, conversationId, signal);
+        answer += turn.text;
+        messages.push(turn.reply);
 
-        for await (const chunk of await bound.stream(messages, { signal })) {
-          gathered = gathered === undefined ? chunk : gathered.concat(chunk);
-          const token = messageText(chunk.content);
-          if (token.length > 0) {
-            answer += token;
-            yield { type: 'token', conversationId, token };
-          }
-        }
-
-        const reply = gathered ?? new AIMessageChunk({ content: '' });
-        messages.push(reply);
-
-        const requested = reply.tool_calls ?? [];
+        const requested = turn.reply.tool_calls ?? [];
         if (requested.length === 0) break;
 
-        for (const call of requested) {
-          const invocation = await this.runTool(toolsByName, call.name, call.args);
+        for await (const invocation of this.runToolCalls(toolsByName, requested, messages)) {
           toolCalls.push(invocation);
           yield { type: 'tool', conversationId, tool: invocation };
-          messages.push(
-            new ToolMessage({
-              content: invocation.result,
-              tool_call_id: call.id ?? randomUUID(),
-              name: call.name,
-            }),
-          );
         }
 
         if (step === MAX_TOOL_STEPS - 1) {
-          // Out of budget: ask for prose so the user never gets an empty answer.
-          messages.push(
-            new HumanMessage(
-              'Tool budget exhausted. Answer now using only what the tools already returned.',
-            ),
-          );
-          const final = await this.model.invoke(messages, { signal });
-          const text = messageText(final.content);
+          const text = await this.forceAnswer(messages, signal);
           answer += text;
           if (text.length > 0) yield { type: 'token', conversationId, token: text };
         }
@@ -129,6 +126,66 @@ export class ChatService {
       this.logger.error({ err: error, conversationId }, 'Chat failed');
       yield { type: 'error', conversationId, error: reason };
     }
+  }
+
+  /**
+   * One model turn: yields each text token as it arrives and *returns* the
+   * reassembled reply, so `stream` can `yield*` it in a single expression.
+   */
+  private async *streamTurn(
+    model: ChatModelLike,
+    messages: BaseMessage[],
+    conversationId: string,
+    signal?: AbortSignal,
+  ): AsyncGenerator<ChatStreamEvent, { reply: AIMessageChunk; text: string }> {
+    let gathered: AIMessageChunk | undefined;
+    let text = '';
+
+    for await (const chunk of await model.stream(messages, { signal })) {
+      // `AIMessageChunk#concat` merges partial tool calls; it is not `Array#concat`.
+      // eslint-disable-next-line unicorn/prefer-spread
+      gathered = gathered === undefined ? chunk : gathered.concat(chunk);
+      const token = messageText(chunk.content);
+      if (token.length > 0) {
+        text += token;
+        yield { type: 'token', conversationId, token };
+      }
+    }
+
+    return { reply: gathered ?? new AIMessageChunk({ content: '' }), text };
+  }
+
+  /**
+   * Runs the tool calls from one turn and appends each observation to `messages`,
+   * yielding the invocation so the caller can stream it to the client.
+   */
+  private async *runToolCalls(
+    tools: ReadonlyMap<string, StructuredToolInterface>,
+    calls: readonly { id?: string; name: string; args: Record<string, unknown> }[],
+    messages: BaseMessage[],
+  ): AsyncGenerator<ToolInvocation> {
+    for (const call of calls) {
+      const invocation = await this.runTool(tools, call.name, call.args);
+      messages.push(
+        new ToolMessage({
+          content: invocation.result,
+          tool_call_id: call.id ?? randomUUID(),
+          name: call.name,
+        }),
+      );
+      yield invocation;
+    }
+  }
+
+  /** Last resort when the tool budget runs out, so the user never gets an empty answer. */
+  private async forceAnswer(messages: BaseMessage[], signal?: AbortSignal): Promise<string> {
+    messages.push(
+      new HumanMessage(
+        'Tool budget exhausted. Answer now using only what the tools already returned.',
+      ),
+    );
+    const final = await this.model.invoke(messages, { signal });
+    return messageText(final.content);
   }
 
   get modelName(): string {
@@ -173,12 +230,11 @@ export class ChatService {
     }
 
     try {
-      const output = await tool.invoke(args);
-      const text = typeof output === 'string' ? output : messageText(output?.content ?? '');
+      const output: unknown = await tool.invoke(args);
       return {
         name,
         args,
-        result: text.slice(0, MAX_TOOL_RESULT_CHARS),
+        result: toolOutputText(output).slice(0, MAX_TOOL_RESULT_CHARS),
         durationMs: Date.now() - startedAt,
         failed: false,
       };
