@@ -14,7 +14,16 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/main.tsx'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/test/**',
+        'src/main.tsx',
+        // A lazy singleton around the real socket client: nothing to assert that
+        // the Playwright suite does not already cover for real.
+        'src/api/socket.ts',
+        'src/types.ts',
+      ],
+      thresholds: { lines: 90, functions: 90, branches: 88, statements: 90 },
     },
   },
 });

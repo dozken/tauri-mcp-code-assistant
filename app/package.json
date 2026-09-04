@@ -15,7 +15,9 @@
     "test:e2e:install": "playwright install chromium",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "mutation": "stryker run",
+    "test:cov": "vitest run --coverage"
   },
   "dependencies": {
     "@ai-code-companion/contracts": "*",

@@ -168,6 +168,20 @@ export default tseslint.config(
       'unicorn/consistent-function-scoping': 'off',
       // Fixtures name protocols on purpose (a URL parser's tests, a loopback default).
       'sonarjs/no-clear-text-protocols': 'off',
+      // Supertest/Socket.IO bodies are `any`; the assertions are the type check.
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-base-to-string': 'off',
+      // A table-driven test that asserts "accepted or rejected" is a conditional
+      // expect by construction, and reads far better than two near-identical tables.
+      'vitest/no-conditional-expect': 'off',
+      'sonarjs/no-selector-parameter': 'off',
+      // Deliberate: `const { field: _dropped, ...partial } = record` is how you
+      // build a "missing one required field" fixture.
+      '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^_' }],
+      'sonarjs/no-unused-vars': 'off',
+      'sonarjs/no-alphabetical-sort': 'off',
     },
   },
 

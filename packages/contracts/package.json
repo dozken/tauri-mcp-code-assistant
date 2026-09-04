@@ -22,7 +22,8 @@
     "typecheck": "tsc --noEmit",
     "prepare": "npm run build",
     "test": "vitest run",
-    "test:cov": "vitest run --coverage"
+    "test:cov": "vitest run --coverage",
+    "mutation": "stryker run"
   },
   "dependencies": {
     "zod": "^3.25.76"

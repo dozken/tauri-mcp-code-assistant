@@ -15,11 +15,13 @@ exercised for real. Set `OPENAI_API_KEY` and the identical code path runs agains
 ## Quick start
 
 ```bash
-npm install          # or: bun install
+npm install          # or: bun install — builds packages/contracts via `prepare`
 
-npm run dev          # backend on :3001 + web UI on :1420
+npm run dev          # contracts watcher + backend on :3001 + web UI on :1420
 # or
 npm run dev:tauri    # the same UI inside the Tauri desktop window
+
+npm run check        # the whole gate: format, lint, types, dead code, boundaries, tests
 ```
 
 Open <http://127.0.0.1:1420>, click **Add folder**, point it at a repository, and ask a
@@ -87,32 +89,47 @@ Copy `.env.example` for the full list of settings.
 
 ```
 .
+├── packages/contracts/             # The only place a wire type is defined
+│   └── src/
+│       ├── chat.ts                 # chat request/response + stream events
+│       ├── indexing.ts             # index request, job, progress, status
+│       ├── tools.ts                # MCP tool input/output schemas
+│       └── events.ts               # Socket.IO event names, REST route paths
+│
 ├── app/                            # Tauri v2 + React 19 client
 │   ├── src/
 │   │   ├── api/                    # http.ts, socket.ts, tauri.ts (guarded IPC)
 │   │   ├── components/             # Sidebar, ChatPanel, MessageBubble
 │   │   ├── hooks/useBackend.ts     # socket ⇄ store wiring, send/index actions
 │   │   ├── store/appStore.ts       # Zustand: pure state + synchronous mutators
-│   │   └── types.ts                # wire contract shared with the backend
+│   │   └── types.ts                # UI-only types (everything else is a contract)
 │   ├── src-tauri/                  # Rust shell: tauri.conf.json, capabilities, app_info
 │   ├── e2e/chat.spec.ts            # Playwright
-│   ├── playwright.config.ts
-│   ├── vite.config.ts
-│   └── vitest.config.ts
+│   └── {vite,vitest,playwright,stryker}.config.*
 │
 └── backend/                        # NestJS 11
     ├── src/
     │   ├── chat/                   # controller, gateway, agent loop
-    │   ├── indexing/               # controller, service, chunker, file walker
+    │   ├── indexing/               # controller, service, chunker, walker, progress
     │   ├── vector/                 # embeddings, Chroma + in-memory stores
-    │   ├── tools/                  # CodeToolsService + schemas + LangChain wrappers
+    │   ├── tools/                  # CodeToolsService, outline tokenizer, formatters
     │   ├── mcp/                    # MCP registration + @langchain/mcp-adapters client
     │   ├── llm/                    # StubChatModel + provider factory
-    │   ├── common/                 # pino logging, SQLite metadata, path guard
+    │   ├── common/                 # pino, SQLite metadata, path guard, zod pipe
     │   └── mcp-server.ts           # MCP stdio entry point
-    ├── stryker.config.json
-    └── vitest.config.ts
+    ├── test/                       # Nest container tests (HTTP + Socket.IO) and MCP
+    └── {vitest,stryker}.config.*
 ```
+
+`packages/contracts` is the load-bearing piece. One zod schema per type that crosses
+a process boundary, and four consumers of each: the Nest request pipe, the LangChain
+tool definitions, the MCP `registerTool` input/output schemas, and the React client —
+which _parses_ every response and socket payload rather than casting it, so version
+skew shows up as one warning instead of `undefined` deep inside a component.
+
+Extracting it immediately caught a live bug: `GET /status` returned an `IndexJob`
+while the frontend declared `IndexProgressEvent`, so `activeJob.percent` was always
+`undefined` and a reload mid-index rendered a stuck progress bar.
 
 ### HTTP API
 
@@ -123,7 +140,7 @@ Copy `.env.example` for the full list of settings.
 | `DELETE` | `/index`        | `?path=...`         | `204` — drops the folder's chunks             |
 | `GET`    | `/status`       | –                   | Active job, folders, store kinds, chunk count |
 | `GET`    | `/health`       | –                   | Liveness                                      |
-| `POST`   | `/chat`         | `ChatRequestDto`    | Blocking; the UI streams over Socket.IO       |
+| `POST`   | `/chat`         | `chatRequestSchema` | Blocking; the UI streams over Socket.IO       |
 
 Socket.IO events — client→server: `chat:send`, `chat:cancel`; server→client:
 `index:progress`, `chat:token`, `chat:tool`, `chat:done`, `chat:error`.
@@ -196,34 +213,91 @@ warning) if the server cannot start.
 
 ---
 
+## Checks
+
+One command runs the whole gate:
+
+```bash
+npm run check      # format:check → lint → typecheck → knip → deps → test
+```
+
+| Command                 | Tool                                       | What it protects                                                   |
+| ----------------------- | ------------------------------------------ | ------------------------------------------------------------------ |
+| `npm run lint`          | ESLint 9 + typescript-eslint (typed)       | Floating promises, unsafe `any`, unbound methods, React hook rules |
+| `npm run format:check`  | Prettier                                   | One style, zero style discussion                                   |
+| `npm run typecheck`     | tsc, `strict` + `noUncheckedIndexedAccess` | Every index access is `T \| undefined` until you narrow it         |
+| `npm run knip`          | Knip                                       | Unused files, exports and dependencies                             |
+| `npm run deps`          | dependency-cruiser                         | Module boundaries and cycles (see below)                           |
+| `npm test`              | Vitest                                     | 250+ unit, container and MCP-protocol tests                        |
+| `npm run test:cov`      | Vitest + v8                                | Coverage thresholds, enforced per workspace                        |
+| `npm run test:e2e`      | Playwright                                 | The real browser build against the real backend                    |
+| `npm run mutation`      | Stryker                                    | Whether the tests would actually notice a bug                      |
+| `npm run rust:fmt/lint` | rustfmt, clippy (`-D warnings`)            | The Tauri shell                                                    |
+
+`.husky/pre-commit` runs `lint-staged` (ESLint + Prettier on staged files only); the
+full gate runs in CI. A hook that takes a minute is a hook people learn to bypass.
+
+The linter is configured to argue. It found, among others: a ref written during
+render, `{...init?.headers}` silently turning a `HeadersInit` tuple list into
+`{0: [...]}`, LangChain's deprecated `message.getType()`, content blocks
+stringifying to `[object Object]`, and seven super-linear regexes running over
+every line of every file in a user's repository.
+
+### Architecture, as executable rules
+
+`dependency-cruiser` encodes the layering, so a bad _shape_ fails CI rather than
+review. Each rule carries the reason in `.dependency-cruiser.cjs`:
+
+- `store-stays-pure` — the Zustand store may not import components, hooks or the API layer.
+- `api-layer-has-no-ui` — the transport layer must not know what renders its results.
+- `tools-do-not-depend-on-transport` — `CodeToolsService` is published over both HTTP and
+  MCP; if it knew about either, the two surfaces could drift.
+- `shared-layers-stay-shared` / `vector-is-a-leaf` — no back-edges into the features.
+- `contracts-depend-on-nothing` — the contracts package is consumed by a Node service _and_
+  a browser bundle, so anything beyond zod would break one of them.
+- `no-circular`, `no-orphans`, `no-dev-dep-in-src`.
+
 ## Testing
 
 ```bash
-npm test                  # Vitest: backend + app
-npm run test:e2e          # Playwright (boots backend + Vite automatically)
-npm run mutation          # Stryker on the backend
-npm run typecheck         # tsc --noEmit in both workspaces
+npm test                  # Vitest across all three workspaces
+npm run test:cov          # …with coverage thresholds
+npm run test:e2e          # Playwright (boots the backend and Vite itself)
+npm run mutation          # Stryker across all three workspaces
 ```
 
-| Suite                                   | Covers                                                                             |
-| --------------------------------------- | ---------------------------------------------------------------------------------- |
-| `backend/src/indexing/*.spec.ts`        | Chunker edge cases, walk/gitignore/binary skipping, job lifecycle, path allow-list |
-| `backend/src/vector/embeddings.spec.ts` | Hashing embeddings, cosine ranking, in-memory store semantics                      |
-| `backend/src/tools/*.spec.ts`           | All three tools, including the "nothing indexed" and refusal paths                 |
-| `backend/src/chat/chat.service.spec.ts` | The agent loop: retrieve → observe → stream, and tool-failure recovery             |
-| `backend/test/mcp-server.spec.ts`       | Real MCP `initialize`/`tools/list`/`tools/call` over an in-memory transport        |
-| `app/src/store/appStore.test.ts`        | Streaming state machine, late-event handling, status reconciliation                |
-| `app/src/components/ChatPanel.test.tsx` | Composer behaviour, fence rendering, tool chips, error surfacing                   |
-| `app/e2e/chat.spec.ts`                  | Ask → answer, index → cite, and a rejected path                                    |
+| Suite                                      | Covers                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `packages/contracts/src/contracts.spec.ts` | Every wire schema: what it accepts, and what it must reject                           |
+| `backend/src/indexing/*.spec.ts`           | Chunker edge cases, walk/gitignore/symlink/binary skipping, job lifecycle, allow-list |
+| `backend/src/vector/*.spec.ts`             | Hashing embeddings, cosine ranking, store fallback, `CHROMA_URL` parsing              |
+| `backend/src/tools/*.spec.ts`              | All three tools, the outline tokenizer, fence widening, refusal paths                 |
+| `backend/src/llm/*.spec.ts`                | The stub model's tool-calling and streaming contract, provider selection              |
+| `backend/src/chat/chat.service.spec.ts`    | The agent loop: retrieve → observe → stream, and tool-failure recovery                |
+| `backend/src/common/*.spec.ts`             | Zod pipe error shape, both metadata stores against one shared contract                |
+| `backend/test/api.e2e.spec.ts`             | The real Nest app over HTTP: routing, validation errors, contract conformance         |
+| `backend/test/gateway.e2e.spec.ts`         | A real Socket.IO client: streamed turns, malformed payloads, progress broadcast       |
+| `backend/test/mcp-server.spec.ts`          | Real MCP `initialize`/`tools/list`/`tools/call` over an in-memory transport           |
+| `app/src/api/*.test.ts`                    | HTTP error mapping, contract rejection, the Tauri bridge in both environments         |
+| `app/src/hooks/useBackend.test.ts`         | Socket wiring, payload validation, listener teardown, send/index actions              |
+| `app/src/components/*.test.tsx`            | Composer behaviour, fence rendering, folder list, progress and cancel                 |
+| `app/e2e/chat.spec.ts`                     | Ask → answer, index → cite, and a rejected path, in a real browser                    |
 
-Playwright uses the browser build of the same React app (Tauri's webview is not automatable);
-the desktop shell is covered by `npm run tauri:build`. On a machine with a preinstalled
-Chromium, set `PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome` instead of `npx playwright install`.
+Playwright drives the browser build of the same React app (Tauri's webview is not
+automatable); the desktop shell is covered by `npm run tauri:build`. On a machine with a
+preinstalled Chromium, set `PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome` instead of
+`npx playwright install`.
 
-Mutation testing is wired up but not part of `npm test` — it takes minutes, not seconds.
-`EXTENSION_LANGUAGES` in `chunker.ts` is fenced off with `// Stryker disable all`: a lookup table
-is data, and its survivable mutants would otherwise swamp the score (53% → 67% on that file once
-excluded).
+**Vitest and Nest.** `backend/vitest.config.ts` transforms with SWC rather than esbuild.
+esbuild does not emit `design:paramtypes`, so any test that boots the Nest container
+fails to resolve constructor dependencies — the same reason `nest start` uses the SWC
+builder. That one plugin is what makes `test/*.e2e.spec.ts` possible.
+
+**Mutation testing** runs on demand and nightly, never on a PR — it takes minutes.
+It is the check that grades the other checks: coverage says a line ran, Stryker says a
+test would have _noticed_. `EXTENSION_LANGUAGES` in `chunker.ts` is fenced off with
+`// Stryker disable all` — a lookup table is data, and its survivable mutants would
+otherwise swamp the score (53% → 67% on that file once excluded).
 
 ---
 
@@ -247,6 +321,12 @@ so both surfaces cannot drift, and the unit tests target the service directly.
 **Graceful degradation is chosen once, at startup.** Chroma → memory, SQLite → memory, MCP → in
 process. Each fallback is logged and reported through `GET /status` and the UI header, because a
 store that silently changes identity mid-session is worse than one that is clearly named.
+
+**One schema, four consumers.** `packages/contracts` is not a types folder — it is zod at
+runtime. The Nest pipe parses requests with it, the MCP server publishes it as tool
+input/output schemas, the LangChain tools are built from it, and the React client parses
+every response and socket payload against it. A contract change is a compile error in
+three places and a visible warning in the fourth.
 
 ### Security notes
 
@@ -275,7 +355,5 @@ What it does **not** do yet, and would need before shipping:
 - Chat history is held by the client and replayed on each turn; there is no server-side session.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.
 - Only one indexing job runs at a time (a second request gets `409`).
-- The wire contract is duplicated in `app/src/types.ts`; a generated `packages/contracts`
-  workspace is the natural next step.
 - `index.html` pins a CSP to `127.0.0.1:3001`, so changing `VITE_BACKEND_URL` means changing the
   CSP too.

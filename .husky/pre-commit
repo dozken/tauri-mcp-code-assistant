@@ -1,0 +1,3 @@
+# Fast, staged-file-only checks. The full gate (`npm run check`) runs in CI —
+# a pre-commit hook that takes a minute is a hook people learn to bypass.
+npx lint-staged

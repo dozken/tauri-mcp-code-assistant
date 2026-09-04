@@ -126,6 +126,24 @@ class SqliteMetadataStore implements MetadataStore {
  * an exotic platform must not take the whole app down. We degrade to an in-memory
  * store, which only costs the list of indexed folders across restarts.
  */
+type DatabaseConstructor = new (
+  file: string,
+  callback: (error: Error | null) => void,
+) => SqliteDatabase;
+
+/**
+ * `new Database(file)` reports a failed open asynchronously. Without the callback
+ * that failure surfaces as an *uncaught exception* and takes the process down —
+ * which is exactly what the fallback below exists to prevent.
+ */
+const openDatabase = (Database: DatabaseConstructor, file: string): Promise<SqliteDatabase> =>
+  new Promise((resolve, reject) => {
+    const db: SqliteDatabase = new Database(file, (error) => {
+      if (error) reject(error);
+      else resolve(db);
+    });
+  });
+
 export const createMetadataStore = async (
   filename: string,
   onFallback?: (reason: string) => void,
@@ -133,13 +151,13 @@ export const createMetadataStore = async (
   try {
     await mkdir(dirname(filename), { recursive: true });
     const imported = (await import('sqlite3')) as unknown as {
-      default?: { Database: new (file: string) => SqliteDatabase };
-      Database?: new (file: string) => SqliteDatabase;
+      default?: { Database: DatabaseConstructor };
+      Database?: DatabaseConstructor;
     };
     const Database = imported.default?.Database ?? imported.Database;
     if (!Database) throw new Error('sqlite3 module did not export a Database constructor');
 
-    const store = new SqliteMetadataStore(new Database(filename));
+    const store = new SqliteMetadataStore(await openDatabase(Database, filename));
     await store.migrate();
     return store;
   } catch (error) {
