@@ -38,6 +38,9 @@ jobs:
       - uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # The crate is not at the repo root, and the action's default `.` made
+          # this job fail on a missing Cargo.lock rather than on any advisory.
+          working-directory: app/src-tauri
 
   secrets:
     name: Secret scan
