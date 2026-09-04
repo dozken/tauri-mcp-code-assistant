@@ -1,0 +1,70 @@
+{
+  "name": "@ai-code-companion/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NestJS backend: indexing, retrieval, LangChain agent loop and MCP tool server.",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./dist/main.js",
+    "./mcp-server": "./dist/mcp-server.js"
+  },
+  "scripts": {
+    "dev": "nest start --watch --builder swc",
+    "dev:tsc": "nest start --watch",
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "mcp": "node dist/mcp-server.js",
+    "mcp:dev": "node --experimental-strip-types --no-warnings src/mcp-server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "mutation": "stryker run"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.9",
+    "@langchain/mcp-adapters": "^1.1.4",
+    "@langchain/langgraph": "^1.4.13",
+    "@langchain/openai": "^1.5.11",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@nestjs/common": "^11.2.3",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.2.3",
+    "@nestjs/platform-express": "^11.2.3",
+    "@nestjs/platform-socket.io": "^11.2.3",
+    "@nestjs/websockets": "^11.2.3",
+    "chromadb": "^3.5.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "ignore": "^7.0.5",
+    "langchain": "^1.5.10",
+    "nestjs-pino": "^4.6.1",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "pino-pretty": "^13.1.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "socket.io": "^4.8.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.24",
+    "@nestjs/schematics": "^11.0.9",
+    "@nestjs/testing": "^11.2.3",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
+    "@swc/cli": "^0.7.9",
+    "@swc/core": "^1.15.0",
+    "@types/node": "^22.10.10",
+    "@vitest/coverage-v8": "^3.2.7",
+    "typescript": "5.7.3",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.7"
+  },
+  "optionalDependencies": {
+    "sqlite3": "^5.1.7"
+  }
+}

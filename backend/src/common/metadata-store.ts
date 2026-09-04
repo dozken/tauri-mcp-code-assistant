@@ -1,0 +1,144 @@
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
+export interface IndexedRootRecord {
+  readonly path: string;
+  readonly fileCount: number;
+  readonly chunkCount: number;
+  readonly lastIndexedAt: string;
+  /** Which vector store held the chunks — `memory` does not survive a restart. */
+  readonly store: string;
+}
+
+export interface MetadataStore {
+  readonly kind: 'sqlite' | 'memory';
+  upsertRoot(record: IndexedRootRecord): Promise<void>;
+  listRoots(): Promise<IndexedRootRecord[]>;
+  removeRoot(path: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+export class MemoryMetadataStore implements MetadataStore {
+  readonly kind = 'memory' as const;
+  private readonly roots = new Map<string, IndexedRootRecord>();
+
+  async upsertRoot(record: IndexedRootRecord): Promise<void> {
+    this.roots.set(record.path, record);
+  }
+
+  async listRoots(): Promise<IndexedRootRecord[]> {
+    return [...this.roots.values()].sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  async removeRoot(path: string): Promise<void> {
+    this.roots.delete(path);
+  }
+
+  async close(): Promise<void> {}
+}
+
+/** Minimal promise wrapper over the callback-based `sqlite3` driver. */
+interface SqliteDatabase {
+  run(sql: string, params: unknown[], callback: (error: Error | null) => void): void;
+  all(sql: string, params: unknown[], callback: (error: Error | null, rows: unknown[]) => void): void;
+  close(callback: (error: Error | null) => void): void;
+}
+
+class SqliteMetadataStore implements MetadataStore {
+  readonly kind = 'sqlite' as const;
+
+  constructor(private readonly db: SqliteDatabase) {}
+
+  private run(sql: string, params: unknown[] = []): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.db.run(sql, params, (error) => (error ? reject(error) : resolve()));
+    });
+  }
+
+  private all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+    return new Promise((resolve, reject) => {
+      this.db.all(sql, params, (error, rows) => (error ? reject(error) : resolve(rows as T[])));
+    });
+  }
+
+  async migrate(): Promise<void> {
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS indexed_roots (
+        path            TEXT PRIMARY KEY,
+        file_count      INTEGER NOT NULL DEFAULT 0,
+        chunk_count     INTEGER NOT NULL DEFAULT 0,
+        last_indexed_at TEXT    NOT NULL,
+        store           TEXT    NOT NULL
+      )
+    `);
+  }
+
+  async upsertRoot(record: IndexedRootRecord): Promise<void> {
+    await this.run(
+      `INSERT INTO indexed_roots (path, file_count, chunk_count, last_indexed_at, store)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(path) DO UPDATE SET
+         file_count = excluded.file_count,
+         chunk_count = excluded.chunk_count,
+         last_indexed_at = excluded.last_indexed_at,
+         store = excluded.store`,
+      [record.path, record.fileCount, record.chunkCount, record.lastIndexedAt, record.store],
+    );
+  }
+
+  async listRoots(): Promise<IndexedRootRecord[]> {
+    const rows = await this.all<{
+      path: string;
+      file_count: number;
+      chunk_count: number;
+      last_indexed_at: string;
+      store: string;
+    }>('SELECT * FROM indexed_roots ORDER BY path');
+    return rows.map((row) => ({
+      path: row.path,
+      fileCount: row.file_count,
+      chunkCount: row.chunk_count,
+      lastIndexedAt: row.last_indexed_at,
+      store: row.store,
+    }));
+  }
+
+  async removeRoot(path: string): Promise<void> {
+    await this.run('DELETE FROM indexed_roots WHERE path = ?', [path]);
+  }
+
+  close(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.db.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+}
+
+/**
+ * `sqlite3` is an optional dependency: it is a native module and a failed build on
+ * an exotic platform must not take the whole app down. We degrade to an in-memory
+ * store, which only costs the list of indexed folders across restarts.
+ */
+export const createMetadataStore = async (
+  filename: string,
+  onFallback?: (reason: string) => void,
+): Promise<MetadataStore> => {
+  try {
+    await mkdir(dirname(filename), { recursive: true });
+    const imported = (await import('sqlite3')) as unknown as {
+      default?: { Database: new (file: string) => SqliteDatabase };
+      Database?: new (file: string) => SqliteDatabase;
+    };
+    const Database = imported.default?.Database ?? imported.Database;
+    if (!Database) throw new Error('sqlite3 module did not export a Database constructor');
+
+    const store = new SqliteMetadataStore(new Database(filename));
+    await store.migrate();
+    return store;
+  } catch (error) {
+    onFallback?.(error instanceof Error ? error.message : String(error));
+    return new MemoryMetadataStore();
+  }
+};
+
+export const METADATA_STORE = 'METADATA_STORE';

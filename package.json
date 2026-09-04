@@ -1,0 +1,30 @@
+{
+  "name": "ai-code-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Code Companion — Tauri v2 + NestJS + MCP + LangChain + ChromaDB desktop app for chatting with your codebase.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "app",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:backend dev:app",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:app": "npm run dev --workspace app",
+    "dev:tauri": "npm run tauri:dev --workspace app",
+    "build": "npm run build --workspace backend && npm run build --workspace app",
+    "mcp": "npm run mcp --workspace backend",
+    "test": "npm run test --workspace backend && npm run test --workspace app",
+    "test:e2e": "npm run test:e2e --workspace app",
+    "mutation": "npm run mutation --workspace backend",
+    "typecheck": "npm run typecheck --workspace backend && npm run typecheck --workspace app"
+  },
+  "devDependencies": {
+    "npm-run-all2": "^8.0.4",
+    "typescript": "5.7.3"
+  }
+}
