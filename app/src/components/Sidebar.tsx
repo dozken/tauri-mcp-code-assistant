@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -42,6 +42,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualPath, setManualPath] = useState('');
   const [appInfo, setAppInfo] = useState<AppInfo>();
+  const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // Resolves to undefined in the browser build, which hides the footer.
@@ -220,7 +221,18 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
         </>
       ) : null}
 
-      <Dialog open={manualOpen} onClose={closeManual} fullWidth maxWidth="sm">
+      <Dialog
+        open={manualOpen}
+        onClose={closeManual}
+        fullWidth
+        maxWidth="sm"
+        slotProps={{
+          // MUI's Modal focuses the dialog paper when it opens, which beats any
+          // `autoFocus` on a child. Focusing once the transition has settled is the
+          // only reliable way to land a keyboard user in the field they came for.
+          transition: { onEntered: () => pathInputRef.current?.focus() },
+        }}
+      >
         <DialogTitle>Index a folder</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -228,10 +240,6 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
             instead.
           </Typography>
           <TextField
-            // A modal's first field is the documented exception to no-autofocus:
-            // focus has to move into the dialog for keyboard users.
-            // eslint-disable-next-line jsx-a11y/no-autofocus
-            autoFocus
             fullWidth
             margin="dense"
             label="Absolute path"
@@ -241,6 +249,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
             onKeyDown={(event) => {
               if (event.key === 'Enter') void submitManual();
             }}
+            inputRef={pathInputRef}
             slotProps={{ htmlInput: { 'data-testid': 'manual-path' } }}
           />
         </DialogContent>

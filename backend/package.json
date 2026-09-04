@@ -63,6 +63,6 @@
     "vitest": "^3.2.7"
   },
   "optionalDependencies": {
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^6.0.1"
   }
 }

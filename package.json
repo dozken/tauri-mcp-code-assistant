@@ -13,10 +13,11 @@
     "backend"
   ],
   "scripts": {
+    "audit": "npm audit --audit-level=high",
     "build": "npm run build --workspaces --if-present",
     "check": "npm-run-all --sequential format:check lint typecheck knip deps test",
     "clean": "npm run clean --workspaces --if-present",
-    "deps": "depcruise app/src backend/src packages/contracts/src",
+    "deps": "depcruise app/src backend/src packages/contracts/src scripts",
     "dev": "npm run build --workspace @ai-code-companion/contracts && npm-run-all --parallel dev:contracts dev:backend dev:app",
     "dev:app": "npm run dev --workspace app",
     "dev:backend": "npm run dev --workspace backend",
@@ -35,6 +36,7 @@
     "prepare": "husky",
     "rust:fmt": "cargo fmt --manifest-path app/src-tauri/Cargo.toml --all -- --check",
     "rust:lint": "cargo clippy --manifest-path app/src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "size": "npm run build --workspace app && node scripts/check-bundle-size.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:cov": "npm run test:cov --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace app",

@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR per ecosystem instead of thirty: these move together and the CI
+      # gate is what actually decides whether an upgrade is safe.
+      nest:
+        patterns: ['@nestjs/*', 'nestjs-*']
+      langchain:
+        patterns: ['@langchain/*', '@modelcontextprotocol/*']
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom', '@mui/*', '@emotion/*']
+      tooling:
+        patterns:
+          ['eslint*', '@eslint/*', 'typescript-eslint', 'prettier', 'knip', 'dependency-cruiser']
+      testing:
+        patterns:
+          ['vitest', '@vitest/*', '@playwright/*', '@stryker-mutator/*', '@testing-library/*']
+
+  - package-ecosystem: cargo
+    directory: /app/src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

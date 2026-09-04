@@ -12,6 +12,26 @@ const APP_URL = process.env.E2E_APP_URL ?? 'http://127.0.0.1:1420';
  */
 const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
 
+const chromium = {
+  name: 'chromium',
+  use: {
+    ...devices['Desktop Chrome'],
+    launchOptions: chromiumPath ? { executablePath: chromiumPath } : {},
+  },
+};
+
+/**
+ * Tauri's webview *is* WebKit on macOS and Linux, so this is the only engine here
+ * that matches what the shipped desktop app actually renders in — worth running
+ * before a release, and the place a WebKit-only layout or API gap would show up.
+ *
+ * Opt-in because it needs its own browser download:
+ *   npx playwright install webkit && E2E_ALL_BROWSERS=1 npm run test:e2e
+ */
+const webkit = { name: 'webkit', use: { ...devices['Desktop Safari'] } };
+
+const PROJECTS = process.env.E2E_ALL_BROWSERS ? [chromium, webkit] : [chromium];
+
 /**
  * Drives the web build of the same React app the Tauri window loads. Tauri's
  * webview is not automatable by Playwright, so the E2E suite targets the browser
@@ -31,15 +51,7 @@ export default defineConfig({
     trace: 'on-first-retry',
     video: 'retain-on-failure',
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: chromiumPath ? { executablePath: chromiumPath } : {},
-      },
-    },
-  ],
+  projects: PROJECTS,
   webServer: [
     {
       // The backend runs from dist, so build it first; `npm run build` is a no-op

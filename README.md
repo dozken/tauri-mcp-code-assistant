@@ -234,6 +234,10 @@ npm run check      # format:check → lint → typecheck → knip → deps → t
 | `npm run mutation`      | Stryker                                    | Whether the tests would actually notice a bug                      |
 | `npm run rust:fmt/lint` | rustfmt, clippy (`-D warnings`)            | The Tauri shell                                                    |
 
+A second workflow (`.github/workflows/security.yml`) runs npm and cargo advisories,
+gitleaks over the full history, and CodeQL — weekly as well as per-PR, because an
+advisory lands on its own schedule rather than yours.
+
 `.husky/pre-commit` runs `lint-staged` (ESLint + Prettier on staged files only); the
 full gate runs in CI. A hook that takes a minute is a hook people learn to bypass.
 
@@ -287,6 +291,17 @@ Playwright drives the browser build of the same React app (Tauri's webview is no
 automatable); the desktop shell is covered by `npm run tauri:build`. On a machine with a
 preinstalled Chromium, set `PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome` instead of
 `npx playwright install`.
+
+`e2e/a11y.spec.ts` runs axe-core against the rendered app. `jsx-a11y` only sees the
+source; axe sees contrast against the real theme, focus order and names computed from
+MUI's own markup. It earned its place immediately: opening the folder dialog left focus
+on the dialog paper rather than the input, because MUI's `Modal` focuses its own
+container and beats a child's `autoFocus`.
+
+A **`webkit`** project is configured but opt-in
+(`npx playwright install webkit && E2E_ALL_BROWSERS=1 npm run test:e2e`). It is worth
+running before a desktop release: Tauri's webview _is_ WebKit on macOS and Linux, so it
+is the only engine here that matches what the shipped app renders in.
 
 **Vitest and Nest.** `backend/vitest.config.ts` transforms with SWC rather than esbuild.
 esbuild does not emit `design:paramtypes`, so any test that boots the Nest container
