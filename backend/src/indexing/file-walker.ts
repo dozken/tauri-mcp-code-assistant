@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import ignore, { type Ignore } from 'ignore';
+import { isSensitiveDirectory, isSensitivePath } from '../common/secret-files.js';
 
 export interface WalkedFile {
   readonly absolutePath: string;
@@ -125,13 +126,21 @@ const shouldEnterDirectory = (
   relativePath: string,
   { gitignore }: Classifier,
 ): boolean =>
-  !DEFAULT_IGNORED_DIRECTORIES.has(entry.name) && gitignore?.ignores(`${relativePath}/`) !== true;
+  !DEFAULT_IGNORED_DIRECTORIES.has(entry.name) &&
+  gitignore?.ignores(`${relativePath}/`) !== true &&
+  // The per-file check would catch anything in here anyway; not descending means
+  // we never even read the directory.
+  !isSensitiveDirectory(relativePath);
 
 const shouldConsiderFile = (
   entry: Dirent,
   relativePath: string,
   { extensions, gitignore }: Classifier,
-): boolean => gitignore?.ignores(relativePath) !== true && extensions.has(extensionOf(entry.name));
+): boolean =>
+  gitignore?.ignores(relativePath) !== true &&
+  extensions.has(extensionOf(entry.name)) &&
+  // DEFAULT_EXTENSIONS contains `env`, so without this `prod.env` is embedded.
+  !isSensitivePath(relativePath);
 
 /** `undefined` when the file is unreadable or outside the size band. */
 const measure = async (absolutePath: string, maxFileBytes: number): Promise<number | undefined> => {

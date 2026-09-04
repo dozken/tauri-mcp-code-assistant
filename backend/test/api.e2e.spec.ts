@@ -141,6 +141,40 @@ describe('HTTP API', () => {
     expect(response.message).toContain('auth.ts');
   });
 
+  it('answers 504, not 500, when the model runs past the deadline', async () => {
+    // A separate app: the deadline is read from config at construction.
+    const slow = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(APP_CONFIG)
+      .useValue({
+        ...loadConfig({
+          CHROMA_ENABLED: 'false',
+          LLM_PROVIDER: 'stub',
+          LOG_LEVEL: 'silent',
+          STUB_TOKEN_DELAY_MS: '50',
+          LLM_TIMEOUT_MS: '1',
+        }),
+        corsOrigins: ['tauri://localhost'],
+        auth: { enabled: true, token: TOKEN, tokenFile: join(root, 'token') },
+        metadataDb: join(root, 'slow.sqlite'),
+      })
+      .compile();
+    const slowApp = slow.createNestApplication();
+    await slowApp.init();
+
+    try {
+      const { body } = await request
+        .agent(slowApp.getHttpServer())
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .post('/chat')
+        .send({ message: 'where do we authenticate?' })
+        .expect(504);
+
+      expect(JSON.stringify(body)).toContain('did not answer within');
+    } finally {
+      await slowApp.close();
+    }
+  });
+
   it('rejects a malformed body with the field that failed', async () => {
     const { body } = await api().post('/index').send({}).expect(400);
 

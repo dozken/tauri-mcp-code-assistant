@@ -26,6 +26,11 @@ export interface AppConfig {
     readonly apiKey?: string;
     readonly baseUrl?: string;
     readonly temperature: number;
+    /**
+     * Ceiling on a whole chat turn, tool calls included. A hung upstream model
+     * otherwise holds the connection — and a gateway slot — open forever.
+     */
+    readonly timeoutMs: number;
   };
   readonly auth: {
     /**
@@ -131,6 +136,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       apiKey,
       baseUrl: text(env.OPENAI_BASE_URL),
       temperature: Number(env.LLM_TEMPERATURE ?? 0),
+      timeoutMs: num(env.LLM_TIMEOUT_MS, 120_000),
     },
     auth: {
       enabled: bool(env.AUTH_ENABLED, true),

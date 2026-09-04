@@ -435,16 +435,49 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3001/status
 to switch the guard off, or `COMPANION_TOKEN` to pin the token; the backend logs `auth=on|off` at
 startup and warns loudly when it is off.
 
+#### Credentials are refused, whoever asks
+
+The allow-list answers "may this process touch that folder". It does not answer "is this file the
+kind of thing nobody meant to share" — and it cannot, because the default allowed root is `$HOME`,
+which already contains `~/.ssh` and `~/.aws`. `backend/src/common/secret-files.ts` answers the
+second question, and **three** readers consult it, because blocking only the obvious one moves the
+leak rather than closing it:
+
+| Reader         | Was leaking                                                                    |
+| -------------- | ------------------------------------------------------------------------------ |
+| `explain_file` | Returned any file's contents to an MCP client, `.env` and `id_rsa` included    |
+| The indexer    | `DEFAULT_EXTENSIONS` contains `env`, so `prod.env` was embedded into the store |
+| `search_code`  | An index built before this existed could still serve those chunks              |
+
+Blocked: `.env` and friends, key material (`.pem`, `.key`, `.p12`, `.tfvars`, …), credential files
+(`.npmrc`, `.netrc`, `.git-credentials`, `kubeconfig`, `terraform.tfstate`) and everything under a
+credential directory (`.ssh`, `.aws`, `.kube`, `.gnupg`, …). `explain_file` checks the _resolved_
+path, so a symlink cannot launder `~/.ssh/id_rsa` into an innocent name inside the repo.
+
+Deliberately allowed: `.env.example`, `.env.sample`, `.env.template` — they exist to be read. And
+deliberately not configurable: a deny-list with an off switch is one that ends up switched off.
+
+#### Chat turns have a deadline
+
+`LLM_TIMEOUT_MS` (default 120s) caps a whole turn, tool calls included. Past it the turn is
+cancelled, the socket gets a `chat:error` naming the timeout, and `POST /chat` answers **504**
+rather than holding the connection open. A user pressing Stop is reported as a cancellation, not
+as a timeout — the two are distinguished by the abort reason, not by matching error text.
+
 What it does **not** do yet, and would need before shipping:
 
-- **`explain_file` will read any file inside an allowed root**, `.env` included. Indexing honours
-  `.gitignore`; this tool deliberately does not, because you may want to explain an ignored file.
-  Adding a secret-file deny-list is the obvious hardening step.
-- **No request timeout on `POST /chat`.** A hung upstream model holds the connection open.
+- **No rate limiting.** An authenticated caller can start `POST /index` in a loop. The one-job-at-a-
+  time rule bounds the damage, but nothing bounds the request rate.
+- **The deny-list is name-based.** It knows `.env` is a secret; it cannot tell that someone pasted a
+  live token into `notes.md`. Entropy scanning is the next step, and gitleaks already covers the
+  committed history.
+- **Nothing is signed.** There is no release workflow producing notarised installers, so there is no
+  supply chain from this repo to a user's machine yet.
 
 ### Known limitations
 
 - Re-indexing a folder rewrites it wholesale; there is no incremental/watch mode.
+- The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
 - `.gitignore` is read from the folder root only, not from nested directories.
 - Chat history is held by the client and replayed on each turn; there is no server-side session.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.

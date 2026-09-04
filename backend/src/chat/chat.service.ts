@@ -14,6 +14,7 @@ import type { MessageContent } from '@langchain/core/messages';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { Runnable } from '@langchain/core/runnables';
 import type { BaseLanguageModelInput } from '@langchain/core/language_models/base';
+import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { CHAT_MODEL } from '../llm/llm.module.js';
 import { messageText } from '../llm/stub-chat-model.js';
 import { McpToolsService } from '../mcp/mcp-tools.service.js';
@@ -23,6 +24,31 @@ import type {
   ChatStreamEvent,
   ToolInvocation,
 } from '@ai-code-companion/contracts';
+
+// Sub-second deadlines only really occur in tests, but rounding 500ms to "1s"
+// makes the one message a reader checks against their config a lie.
+const humaniseMs = (ms: number): string =>
+  ms < 1000 ? `${String(ms)}ms` : `${String(Math.round(ms / 1000))}s`;
+
+const TIMEOUT_MESSAGE = (ms: number): string =>
+  `The model did not answer within ${humaniseMs(ms)}, so the request was cancelled. ` +
+  'Raise LLM_TIMEOUT_MS if your model is legitimately this slow.';
+
+/**
+ * Raised by the blocking variant so the HTTP layer can answer 504 rather than 500.
+ * Declared here, but deliberately not an HttpException: this service also backs the
+ * Socket.IO gateway and must not know about HTTP.
+ */
+export class ChatTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChatTimeoutError';
+  }
+}
+
+/** True when *our* deadline fired, as opposed to the caller pressing Stop. */
+const isTimeout = (signal: AbortSignal): boolean =>
+  signal.aborted && (signal.reason as { name?: string } | undefined)?.name === 'TimeoutError';
 
 /** Either the bare model or the same model with tools bound; both stream chunks. */
 type ChatModelLike = Runnable<BaseLanguageModelInput, AIMessageChunk>;
@@ -65,8 +91,29 @@ export class ChatService {
   constructor(
     @Inject(CHAT_MODEL) private readonly model: BaseChatModel,
     private readonly mcpTools: McpToolsService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
     @InjectPinoLogger(ChatService.name) private readonly logger: PinoLogger,
   ) {}
+
+  /**
+   * The caller's signal (the Stop button) combined with a deadline for the whole
+   * turn. Returned separately from its disposer so the timer can be cleared the
+   * moment the turn ends — an uncleared `AbortSignal.timeout` keeps the event loop
+   * alive for its full duration, which turns a fast reply into a slow shutdown.
+   */
+  private withDeadline(signal?: AbortSignal): { signal: AbortSignal; done: () => void } {
+    const timeout = new AbortController();
+    const timer = setTimeout(() => {
+      timeout.abort(new DOMException(TIMEOUT_MESSAGE(this.config.llm.timeoutMs), 'TimeoutError'));
+    }, this.config.llm.timeoutMs);
+
+    return {
+      signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
+      done: () => {
+        clearTimeout(timer);
+      },
+    };
+  }
 
   /** Non-streaming variant, built on the same generator so behaviour cannot drift. */
   async chat(request: ChatRequest, signal?: AbortSignal): Promise<ChatResponse> {
@@ -79,7 +126,11 @@ export class ChatService {
         message = event.message;
         toolCalls = event.toolCalls;
       } else if (event.type === 'error') {
-        throw new Error(event.error);
+        // Compared against the string we generate, not pattern-matched on someone
+        // else's error text.
+        throw event.error === TIMEOUT_MESSAGE(this.config.llm.timeoutMs)
+          ? new ChatTimeoutError(event.error)
+          : new Error(event.error);
       }
     }
 
@@ -89,6 +140,7 @@ export class ChatService {
   async *stream(request: ChatRequest, signal?: AbortSignal): AsyncGenerator<ChatStreamEvent> {
     const conversationId = request.conversationId ?? randomUUID();
     const toolCalls: ToolInvocation[] = [];
+    const deadline = this.withDeadline(signal);
     let answer = '';
 
     try {
@@ -101,7 +153,7 @@ export class ChatService {
         // `yield*` forwards every token to the caller and hands back the turn's
         // reassembled reply — tool calls arrive as fragments and only exist once
         // the stream ends.
-        const turn = yield* this.streamTurn(bound, messages, conversationId, signal);
+        const turn = yield* this.streamTurn(bound, messages, conversationId, deadline.signal);
         answer += turn.text;
         messages.push(turn.reply);
 
@@ -114,7 +166,7 @@ export class ChatService {
         }
 
         if (step === MAX_TOOL_STEPS - 1) {
-          const text = await this.forceAnswer(messages, signal);
+          const text = await this.forceAnswer(messages, deadline.signal);
           answer += text;
           if (text.length > 0) yield { type: 'token', conversationId, token: text };
         }
@@ -122,10 +174,20 @@ export class ChatService {
 
       yield { type: 'done', conversationId, message: answer, toolCalls };
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
       this.logger.error({ err: error, conversationId }, 'Chat failed');
-      yield { type: 'error', conversationId, error: reason };
+      yield { type: 'error', conversationId, error: this.describeFailure(error, deadline.signal) };
+    } finally {
+      deadline.done();
     }
+  }
+
+  /**
+   * A deadline abort surfaces as whatever the model layer wrapped it in, so ask the
+   * signal rather than trying to pattern-match somebody else's error text.
+   */
+  private describeFailure(error: unknown, signal: AbortSignal): string {
+    if (isTimeout(signal)) return TIMEOUT_MESSAGE(this.config.llm.timeoutMs);
+    return error instanceof Error ? error.message : String(error);
   }
 
   /**

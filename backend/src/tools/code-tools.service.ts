@@ -1,8 +1,9 @@
 import { readFile, stat } from 'node:fs/promises';
 import { basename, relative } from 'node:path';
-import { Inject, Injectable } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { resolveWithinRoots } from '../common/path-guard.js';
+import { isSensitivePath, sensitivePathReason } from '../common/secret-files.js';
 import { detectLanguage } from '../indexing/chunker.js';
 import { extractImport, extractSymbol } from './outline.js';
 import { VectorStoreService } from '../vector/vector-store.service.js';
@@ -82,20 +83,28 @@ export class CodeToolsService {
 
     return {
       query: input.query,
-      matches: matches.map((match) => ({
-        path: match.metadata.path,
-        relativePath: match.metadata.relativePath,
-        language: match.metadata.language,
-        startLine: match.metadata.startLine,
-        endLine: match.metadata.endLine,
-        score: Number(match.score.toFixed(4)),
-        text: match.text,
-      })),
+      // An index built before the walker learned this rule can still hold secrets,
+      // and re-indexing is the user's choice, not ours. Filter on the way out too.
+      matches: matches
+        .filter((match) => !isSensitivePath(match.metadata.path))
+        .map((match) => ({
+          path: match.metadata.path,
+          relativePath: match.metadata.relativePath,
+          language: match.metadata.language,
+          startLine: match.metadata.startLine,
+          endLine: match.metadata.endLine,
+          score: Number(match.score.toFixed(4)),
+          text: match.text,
+        })),
     };
   }
 
   async explainFile(input: ExplainFileInput): Promise<ExplainFileResult> {
     const path = await resolveWithinRoots(input.path, this.config.indexing.allowedRoots, 'file');
+    // Checked on the *resolved* path, so a symlink cannot launder ~/.ssh/id_rsa
+    // into an innocuous-looking name inside the repo.
+    if (isSensitivePath(path)) throw new ForbiddenException(sensitivePathReason(input.path));
+
     // stat before read: reading a multi-gigabyte file into memory just to reject
     // it afterwards is how a "too large" guard becomes an OOM.
     const { size } = await stat(path);

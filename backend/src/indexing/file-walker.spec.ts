@@ -111,3 +111,50 @@ describe('walkFiles', () => {
     expect(index?.absolutePath).toBe(join(root, 'index.ts'));
   });
 });
+
+describe('walkFiles and secrets', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), 'companion-walk-secret-')));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('does not index a .env, whose extension the default set allows', async () => {
+    await writeFile(join(root, 'app.ts'), 'export const a = 1;\n');
+    // `env` is in DEFAULT_EXTENSIONS, so this file was previously embedded whole.
+    await writeFile(join(root, 'prod.env'), 'DATABASE_URL=postgres://user:pw@host/db\n');
+    await writeFile(join(root, '.env'), 'API_KEY=secret\n');
+
+    expect(await collect(root)).toEqual(['app.ts']);
+  });
+
+  it('excludes the secret and keeps the template, given an extension set allowing both', async () => {
+    await writeFile(join(root, '.env'), 'API_KEY=secret\n');
+    await writeFile(join(root, '.env.example'), 'API_KEY=\n');
+
+    // A bespoke extension set, so this asserts the secret check rather than
+    // DEFAULT_EXTENSIONS (which happens to exclude `example` on its own).
+    const found: string[] = [];
+    for await (const file of walkFiles(root, {
+      maxFileBytes: 64 * 1024,
+      extensions: new Set(['.env', 'example']),
+    })) {
+      found.push(file.relativePath);
+    }
+
+    expect(found).toEqual(['.env.example']);
+  });
+
+  it('never descends into a credential directory', async () => {
+    await mkdir(join(root, '.ssh'));
+    await writeFile(join(root, '.ssh', 'config'), 'Host *\n');
+    await writeFile(join(root, '.ssh', 'notes.md'), '# keys\n');
+    await writeFile(join(root, 'app.ts'), 'export const a = 1;\n');
+
+    expect(await collect(root)).toEqual(['app.ts']);
+  });
+});

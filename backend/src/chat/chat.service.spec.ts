@@ -9,7 +9,9 @@ import { silentLogger, testConfig } from '../../test/helpers.js';
 import { ChatService } from './chat.service.js';
 import type { ChatStreamEvent } from '@ai-code-companion/contracts';
 
-const buildChatService = async (): Promise<{ chat: ChatService; store: MemoryVectorStore }> => {
+const buildChatService = async (
+  overrides: { timeoutMs?: number; tokenDelayMs?: number } = {},
+): Promise<{ chat: ChatService; store: MemoryVectorStore }> => {
   const store = new MemoryVectorStore(new HashingEmbeddings({ dimensions: 128 }));
   await store.upsert([
     {
@@ -27,13 +29,17 @@ const buildChatService = async (): Promise<{ chat: ChatService; store: MemoryVec
     },
   ]);
 
-  const config = testConfig();
+  const base = testConfig();
+  const config = {
+    ...base,
+    llm: { ...base.llm, timeoutMs: overrides.timeoutMs ?? base.llm.timeoutMs },
+  };
   const codeTools = new CodeToolsService(config, store as unknown as VectorStoreService);
   const mcpTools = new McpToolsService(config, codeTools, silentLogger());
   // 0 ms per token keeps the test fast without changing the streaming code path.
-  const model = new StubChatModel({ tokenDelayMs: 0 });
+  const model = new StubChatModel({ tokenDelayMs: overrides.tokenDelayMs ?? 0 });
 
-  return { chat: new ChatService(model, mcpTools, silentLogger()), store };
+  return { chat: new ChatService(model, mcpTools, config, silentLogger()), store };
 };
 
 const collect = async (events: AsyncGenerator<ChatStreamEvent>): Promise<ChatStreamEvent[]> => {
@@ -94,6 +100,7 @@ describe('ChatService', () => {
     const chat = new ChatService(
       new StubChatModel({ tokenDelayMs: 0 }),
       new McpToolsService(config, codeTools, silentLogger()),
+      config,
       silentLogger(),
     );
 
@@ -131,11 +138,70 @@ describe('ChatService', () => {
     const chat = new ChatService(
       model,
       new McpToolsService(config, codeTools, silentLogger()),
+      config,
       silentLogger(),
     );
 
     const events = await collect(chat.stream({ message: 'hi' }));
 
     expect(events.at(-1)).toMatchObject({ type: 'error', error: 'model exploded' });
+  });
+});
+
+describe('ChatService deadline', () => {
+  it('ends the turn with an error naming the timeout, not a raw AbortError', async () => {
+    // 1 ms deadline against a stub that takes 20 ms per token: the model is mid-turn
+    // when the deadline fires, which is the case that used to hang the connection.
+    const { chat } = await buildChatService({ timeoutMs: 1, tokenDelayMs: 20 });
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+    const last = events.at(-1);
+
+    expect(last?.type).toBe('error');
+    expect(last).toMatchObject({ error: expect.stringContaining('did not answer within') });
+    expect(last).toMatchObject({ error: expect.stringContaining('LLM_TIMEOUT_MS') });
+  });
+
+  it('rejects the blocking /chat variant rather than holding the connection', async () => {
+    const { chat } = await buildChatService({ timeoutMs: 1, tokenDelayMs: 20 });
+
+    await expect(chat.chat({ message: 'where do we authenticate?' })).rejects.toThrow(
+      /did not answer within/,
+    );
+  });
+
+  it('reports a caller cancel as a cancel, not as a timeout', async () => {
+    const { chat } = await buildChatService({ timeoutMs: 60_000, tokenDelayMs: 20 });
+    const controller = new AbortController();
+
+    const events: ChatStreamEvent[] = [];
+    const stream = chat.stream({ message: 'where do we authenticate?' }, controller.signal);
+    for await (const event of stream) {
+      events.push(event);
+      if (events.length === 1) controller.abort();
+    }
+
+    const last = events.at(-1);
+    expect(last?.type).toBe('error');
+    expect(JSON.stringify(last)).not.toContain('did not answer within');
+  });
+
+  it('completes normally when the model is comfortably inside the deadline', async () => {
+    const { chat } = await buildChatService({ timeoutMs: 60_000 });
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('does not keep the process alive after a fast reply', async () => {
+    // An uncleared AbortSignal.timeout holds the event loop for its full duration,
+    // so a 10-minute ceiling would mean a 10-minute shutdown.
+    const { chat } = await buildChatService({ timeoutMs: 600_000 });
+    const before = process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length;
+
+    await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(process.getActiveResourcesInfo().filter((r) => r === 'Timeout')).toHaveLength(before);
   });
 });

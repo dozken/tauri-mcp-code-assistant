@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -99,6 +99,31 @@ describe('CodeToolsService', () => {
     });
   });
 
+  it('drops a secret an older index still holds, without needing a re-index', async () => {
+    // The walker will not embed this any more, but a Chroma collection built
+    // before that change still can, and re-indexing is the user's call.
+    await store.upsert([
+      {
+        id: 'chunk-secret',
+        text: 'DATABASE_URL=postgres://user:hunter2@prod/db',
+        metadata: {
+          path: join(root, 'prod.env'),
+          relativePath: 'prod.env',
+          root,
+          language: 'env',
+          startLine: 1,
+          endLine: 1,
+          indexedAt: '2026-01-01T00:00:00.000Z',
+        },
+      },
+    ]);
+
+    const result = await tools.searchCode({ query: 'DATABASE_URL postgres', limit: 10 });
+
+    expect(result.matches.map((match) => match.relativePath)).not.toContain('prod.env');
+    expect(JSON.stringify(result)).not.toContain('hunter2');
+  });
+
   describe('explain_file', () => {
     it('summarises imports and top-level symbols', async () => {
       const result = await tools.explainFile({ path: join(root, 'user-repository.ts') });
@@ -125,6 +150,37 @@ describe('CodeToolsService', () => {
 
     it('refuses a directory', async () => {
       await expect(tools.explainFile({ path: root })).rejects.toThrow(/Not a file/);
+    });
+
+    it.each([
+      ['a .env file', '.env', 'API_KEY=super-secret\n'],
+      ['a private key', 'server.key', '-----BEGIN PRIVATE KEY-----\n'],
+      ['an npm token file', '.npmrc', '//registry.npmjs.org/:_authToken=secret\n'],
+    ])('refuses to read %s even though it is inside an allowed root', async (_l, name, body) => {
+      const secret = join(root, name);
+      await writeFile(secret, body);
+
+      await expect(tools.explainFile({ path: secret })).rejects.toThrow(/looks like credentials/);
+    });
+
+    it('still explains .env.example, which exists to be read', async () => {
+      const template = join(root, '.env.example');
+      await writeFile(template, 'API_KEY=\n');
+
+      await expect(tools.explainFile({ path: template })).resolves.toMatchObject({
+        path: template,
+      });
+    });
+
+    it('refuses a symlink pointing at a secret, because the check follows realpath', async () => {
+      const secret = join(root, 'real.env');
+      await writeFile(secret, 'TOKEN=nope\n');
+      const innocuous = join(root, 'notes.ts');
+      await symlink(secret, innocuous);
+
+      await expect(tools.explainFile({ path: innocuous })).rejects.toThrow(
+        /looks like credentials/,
+      );
     });
 
     it('rejects a file above the size limit', async () => {
