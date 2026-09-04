@@ -4,7 +4,7 @@ import { HashingEmbeddings } from '../vector/embeddings.js';
 import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
 import { silentLogger, testConfig } from '../../test/helpers.js';
-import { McpToolsService } from './mcp-tools.service.js';
+import { McpToolsService, mcpChildEnv } from './mcp-tools.service.js';
 
 const build = (overrides: Record<string, unknown> = {}): McpToolsService => {
   const config = testConfig();
@@ -57,5 +57,72 @@ describe('McpToolsService', () => {
 
     await service.onModuleDestroy();
     await expect(service.onModuleDestroy()).resolves.toBeUndefined();
+  });
+});
+
+describe('mcpChildEnv', () => {
+  // A stdio MCP child does NOT inherit the parent environment — the SDK starts it
+  // from a small safe default set — so anything the child needs must be forwarded
+  // explicitly, or it silently runs on defaults with a different allow-list.
+  it('forwards the effective configuration', () => {
+    const config = testConfig();
+
+    expect(mcpChildEnv(config)).toMatchObject({
+      CHROMA_ENABLED: String(config.chroma.enabled),
+      CHROMA_URL: config.chroma.url,
+      CHROMA_COLLECTION: config.chroma.collection,
+      EMBEDDINGS_PROVIDER: config.embeddings.provider,
+      EMBEDDINGS_DIMENSIONS: String(config.embeddings.dimensions),
+      EMBEDDINGS_MODEL: config.embeddings.model,
+      INDEX_ALLOWED_ROOTS: config.indexing.allowedRoots.join(','),
+      MAX_FILE_BYTES: String(config.indexing.maxFileBytes),
+      METADATA_DB: config.metadataDb,
+    });
+  });
+
+  it('stops the child from spawning a grandchild', () => {
+    const config = testConfig();
+
+    expect(mcpChildEnv({ ...config, mcp: { ...config.mcp, clientEnabled: true } })).toMatchObject({
+      MCP_CLIENT_ENABLED: 'false',
+    });
+  });
+
+  it('joins multiple allowed roots the way loadConfig parses them', () => {
+    const config = testConfig();
+
+    const env = mcpChildEnv({
+      ...config,
+      indexing: { ...config.indexing, allowedRoots: ['/a', '/b'] },
+    });
+
+    expect(env.INDEX_ALLOWED_ROOTS).toBe('/a,/b');
+  });
+
+  it('omits an unset key rather than passing the string "undefined"', () => {
+    const config = testConfig();
+
+    const env = mcpChildEnv({
+      ...config,
+      llm: { ...config.llm, apiKey: undefined, baseUrl: undefined },
+    });
+
+    expect(env).not.toHaveProperty('OPENAI_API_KEY');
+    expect(env).not.toHaveProperty('OPENAI_BASE_URL');
+    expect(Object.values(env).every((value) => typeof value === 'string')).toBe(true);
+  });
+
+  it('forwards the credentials when they are configured', () => {
+    const config = testConfig();
+
+    const env = mcpChildEnv({
+      ...config,
+      llm: { ...config.llm, apiKey: 'sk-test', baseUrl: 'https://gateway.example' },
+    });
+
+    expect(env).toMatchObject({
+      OPENAI_API_KEY: 'sk-test',
+      OPENAI_BASE_URL: 'https://gateway.example',
+    });
   });
 });

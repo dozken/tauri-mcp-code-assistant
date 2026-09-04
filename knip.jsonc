@@ -8,6 +8,8 @@
     },
     "backend": {
       "entry": ["src/**/*.spec.ts", "test/**/*.spec.ts"],
+      // Referenced by stryker.config.json, which Knip does not read.
+      "ignore": ["vitest.mutation.config.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
       // Loaded by pino as a worker target string, so no import exists to find.
       "ignoreDependencies": ["pino-pretty"],

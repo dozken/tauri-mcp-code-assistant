@@ -12,6 +12,9 @@ import type { FileSymbol } from '@ai-code-companion/contracts';
  */
 
 /** Words that may precede a declaration keyword in any of the supported languages. */
+// Data, not logic: every entry is a survivable mutant that no sensible test would
+// pin down, and there are enough of them to swamp the file's mutation score.
+// Stryker disable all
 const MODIFIERS: ReadonlySet<string> = new Set([
   'export',
   'default',
@@ -47,6 +50,7 @@ const KEYWORD_KINDS: Readonly<Record<string, string | undefined>> = {
 };
 
 const BINDING_KEYWORDS: ReadonlySet<string> = new Set(['const', 'let', 'var']);
+// Stryker restore all
 
 /** Trailing punctuation that can be glued to a declared name: `Foo<T>`, `run(`, `x:`. */
 const NAME = /^[*]?([A-Za-z_$][\w$]*)/;

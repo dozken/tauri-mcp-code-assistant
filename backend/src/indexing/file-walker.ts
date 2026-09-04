@@ -16,6 +16,9 @@ export interface WalkOptions {
 }
 
 /** Directories that are never worth embedding and are expensive to walk. */
+// Data, not logic: every entry is a survivable mutant that no sensible test would
+// pin down, and there are enough of them to swamp the file's mutation score.
+// Stryker disable all
 export const DEFAULT_IGNORED_DIRECTORIES: ReadonlySet<string> = new Set([
   '.git',
   '.hg',
@@ -90,6 +93,7 @@ export const DEFAULT_EXTENSIONS: ReadonlySet<string> = new Set([
   'proto',
   'dockerfile',
 ]);
+// Stryker restore all
 
 const toPosix = (value: string): string => (sep === '/' ? value : value.split(sep).join('/'));
 

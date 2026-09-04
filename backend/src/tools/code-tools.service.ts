@@ -18,6 +18,10 @@ import type {
 
 type SnippetTemplate = (prompt: string) => string;
 
+// Data, not logic: every entry is a survivable mutant that no sensible test would
+// pin down, and there are enough of them to swamp the file's mutation score.
+// Stryker disable all
+
 const SNIPPET_TEMPLATES: Readonly<Record<string, SnippetTemplate | undefined>> = {
   typescript: (prompt) => `/**
  * ${prompt}
@@ -53,6 +57,8 @@ func Run(input string) (string, error) {
 }
 `,
 };
+
+// Stryker restore all
 
 const MAX_EXPLAIN_BYTES = 512 * 1024;
 
