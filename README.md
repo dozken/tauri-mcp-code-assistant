@@ -31,6 +31,10 @@ question. `npm run dev:tauri` additionally needs the
 > **Path allow-list.** By default the backend will only index paths under `$HOME`. Widen it
 > with `INDEX_ALLOWED_ROOTS=/path/one,/path/two`. See [Security](#security-notes).
 
+> **Calling the API by hand.** The app authenticates by `Origin`; curl has none, so it needs the
+> token written to `~/.ai-code-companion/token`. See
+> [Authenticating the local API](#authenticating-the-local-api).
+
 ### Optional: real ChromaDB
 
 ```bash
@@ -391,17 +395,43 @@ three places and a visible warning in the fourth.
 
 The backend reads local files, so:
 
-- it binds to `127.0.0.1` and allows only the Tauri/Vite origins through CORS;
+- it binds to `127.0.0.1` and authenticates every request and socket (below);
 - every user-supplied path goes through `resolveWithinRoots`, which calls `realpath` **before**
   the containment check — a symlink inside an allowed folder cannot escape to `/etc/shadow`;
 - the walker skips symlinks, honours `.gitignore`, and caps file size;
 - pino redacts `authorization`, `cookie` and `apiKey` fields.
 
+#### Authenticating the local API
+
+Binding to loopback is not a security boundary. Two attackers reach `127.0.0.1:3001` with no
+network access at all, and `backend/src/common/local-access.ts` answers both:
+
+| Attacker                        | Why CORS alone fails                                                                                          | What stops it                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| A page the user has open        | CORS blocks _reading_ the response, not _sending_ the request; a `text/plain` `POST` skips preflight entirely | `Origin` is set by the browser and cannot be forged, so it is checked server-side |
+| Another local process           | It can send any header it likes, an allowed `Origin` included                                                 | No `Origin` means "not a browser", which must present the bearer token            |
+| A domain rebound to `127.0.0.1` | It arrives with an `Origin` that is valid from its own point of view                                          | `Host` must be loopback                                                           |
+
+`LocalAccessGuard` is registered as an `APP_GUARD`, so a new endpoint is protected because it
+exists rather than because someone remembered a decorator, and `ConfiguredIoAdapter` applies the
+same policy in `allowRequest` — a rejected client never completes the Socket.IO handshake, which
+matters because broadcasts reach every connected socket without passing a message handler.
+
+The desktop app needs no token: its webview sends `Origin: tauri://localhost` (or
+`http://localhost:1420` in dev). Everything else reads the token, which is regenerated per run and
+written `0600` to `~/.ai-code-companion/token`:
+
+```bash
+TOKEN=$(cat ~/.ai-code-companion/token)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3001/status
+```
+
+`/health` is the one `@Public()` route, so a launcher can poll for the port. Set `AUTH_ENABLED=false`
+to switch the guard off, or `COMPANION_TOKEN` to pin the token; the backend logs `auth=on|off` at
+startup and warns loudly when it is off.
+
 What it does **not** do yet, and would need before shipping:
 
-- **No authentication on the local API.** CORS stops another origin from _reading_ responses, but
-  not from _sending_ a simple cross-origin `POST`. A shared secret in a header (issued by the
-  Tauri shell) or an `Origin` allow-list middleware would close it.
 - **`explain_file` will read any file inside an allowed root**, `.env` included. Indexing honours
   `.gitignore`; this tool deliberately does not, because you may want to explain an ignored file.
   Adding a secret-file deny-list is the obvious hardening step.

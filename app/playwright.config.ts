@@ -72,6 +72,9 @@ export default defineConfig({
         STUB_TOKEN_DELAY_MS: '0',
         INDEX_ALLOWED_ROOTS: repoRoot,
         METADATA_DB: `${repoRoot}backend/.data/e2e.sqlite`,
+        // Keep the run out of ~/.ai-code-companion, so it cannot leave a stale
+        // token behind for a real app that is already running.
+        COMPANION_TOKEN_FILE: `${repoRoot}backend/.data/e2e-token`,
         LOG_LEVEL: 'warn',
       },
     },

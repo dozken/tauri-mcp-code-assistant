@@ -10,6 +10,7 @@ import {
   type IndexStatus,
   type RemoveRootQuery,
 } from '@ai-code-companion/contracts';
+import { Public } from '../common/local-access.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { IndexingService } from './indexing.service.js';
 
@@ -43,6 +44,8 @@ export class IndexingController {
     return this.indexing.getStatus();
   }
 
+  /** Liveness only, and deliberately unauthenticated: nothing here is sensitive. */
+  @Public()
   @Get(API_ROUTES.health)
   health(): HealthResponse {
     return { status: 'ok', uptime: Math.round(process.uptime()) };

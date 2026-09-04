@@ -15,7 +15,10 @@ import {
   type IndexProgressEvent,
 } from '@ai-code-companion/contracts';
 import { AppModule } from '../src/app.module.js';
-import { APP_CONFIG, loadConfig } from '../src/config/configuration.js';
+import { ConfiguredIoAdapter } from '../src/common/io-adapter.js';
+import { APP_CONFIG, loadConfig, type AppConfig } from '../src/config/configuration.js';
+
+const TOKEN = 'ws-token-1111111111111111111111111111';
 
 /**
  * The desktop app talks to the backend over Socket.IO, not REST, so this is the
@@ -26,8 +29,12 @@ describe('Socket.IO gateways', () => {
   let root: string;
   let url: string;
 
-  const connect = async (): Promise<Socket> => {
-    const socket = io(url, { transports: ['websocket'], forceNew: true });
+  const connect = async (headers?: Record<string, string>): Promise<Socket> => {
+    const socket = io(url, {
+      transports: ['websocket'],
+      forceNew: true,
+      extraHeaders: headers ?? { authorization: `Bearer ${TOKEN}` },
+    });
     await new Promise<void>((resolve, reject) => {
       socket.once('connect', () => {
         resolve();
@@ -76,7 +83,8 @@ describe('Socket.IO gateways', () => {
       .overrideProvider(APP_CONFIG)
       .useValue({
         ...loadConfig({ CHROMA_ENABLED: 'false', LLM_PROVIDER: 'stub', LOG_LEVEL: 'silent' }),
-        corsOrigins: ['*'],
+        corsOrigins: ['tauri://localhost'],
+        auth: { enabled: true, token: TOKEN, tokenFile: join(root, 'token') },
         indexing: {
           chunkSize: 400,
           chunkOverlap: 40,
@@ -89,6 +97,8 @@ describe('Socket.IO gateways', () => {
       .compile();
 
     app = moduleRef.createNestApplication();
+    // The real adapter, so the handshake is guarded here exactly as it is in main.ts.
+    app.useWebSocketAdapter(new ConfiguredIoAdapter(app, app.get<AppConfig>(APP_CONFIG)));
     // Port 0: let the OS pick, so a developer's running backend cannot collide.
     await app.listen(0, '127.0.0.1');
     const address = app.getHttpServer().address() as AddressInfo;
@@ -166,7 +176,7 @@ describe('Socket.IO gateways', () => {
       const both = Promise.all([collect(first), collect(second)]);
       await fetch(`${url}/index`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
         body: JSON.stringify({ path: root }),
       });
 
@@ -178,5 +188,36 @@ describe('Socket.IO gateways', () => {
       first.disconnect();
       second.disconnect();
     }
+  });
+
+  describe('access control', () => {
+    /**
+     * Polling rather than websocket: engine.io returns the refusal as an HTTP
+     * body, so the client can see *why*. A rejected websocket upgrade just closes.
+     */
+    const reasonForRefusing = async (headers: Record<string, string>): Promise<string> => {
+      const response = await fetch(`${url}/socket.io/?EIO=4&transport=polling`, { headers });
+      expect(response.status).toBe(403);
+      return JSON.stringify(await response.json());
+    };
+
+    it('refuses the handshake outright when no credentials are offered', async () => {
+      await expect(connect({})).rejects.toThrow();
+      expect(await reasonForRefusing({})).toContain('Authorization: Bearer');
+    });
+
+    it('refuses the handshake from a page we do not serve', async () => {
+      await expect(connect({ origin: 'https://evil.example' })).rejects.toThrow();
+      expect(await reasonForRefusing({ origin: 'https://evil.example' })).toContain('evil.example');
+    });
+
+    it('accepts the desktop app on its Origin alone', async () => {
+      const socket = await connect({ origin: 'tauri://localhost' });
+      try {
+        expect(socket.connected).toBe(true);
+      } finally {
+        socket.disconnect();
+      }
+    });
   });
 });

@@ -1,5 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 type LlmProvider = 'stub' | 'openai';
 type EmbeddingsProvider = 'hashing' | 'openai';
@@ -25,6 +26,20 @@ export interface AppConfig {
     readonly apiKey?: string;
     readonly baseUrl?: string;
     readonly temperature: number;
+  };
+  readonly auth: {
+    /**
+     * When false the guard is bypassed entirely. Only sensible for a throwaway
+     * container; on a developer's machine it re-opens the hole below.
+     */
+    readonly enabled: boolean;
+    /**
+     * Bearer token for clients that send no `Origin` — scripts, the MCP server,
+     * a packaged shell. Generated per run unless `COMPANION_TOKEN` pins it.
+     */
+    readonly token: string;
+    /** Where the token is written so local tooling can find it. */
+    readonly tokenFile: string;
   };
   readonly indexing: {
     readonly chunkSize: number;
@@ -116,6 +131,12 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       apiKey,
       baseUrl: text(env.OPENAI_BASE_URL),
       temperature: Number(env.LLM_TEMPERATURE ?? 0),
+    },
+    auth: {
+      enabled: bool(env.AUTH_ENABLED, true),
+      // A fresh token per run: a leaked one stops working when the app restarts.
+      token: text(env.COMPANION_TOKEN) ?? randomBytes(24).toString('base64url'),
+      tokenFile: env.COMPANION_TOKEN_FILE ?? join(homedir(), '.ai-code-companion', 'token'),
     },
     indexing: {
       chunkSize: num(env.CHUNK_SIZE, 1200),
