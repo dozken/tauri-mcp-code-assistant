@@ -31,6 +31,8 @@ export interface AppConfig {
      * otherwise holds the connection — and a gateway slot — open forever.
      */
     readonly timeoutMs: number;
+    /** Per-token delay for the stub model. Only meaningful when provider is `stub`. */
+    readonly stubTokenDelayMs: number;
   };
   readonly auth: {
     /**
@@ -137,6 +139,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       baseUrl: text(env.OPENAI_BASE_URL),
       temperature: Number(env.LLM_TEMPERATURE ?? 0),
       timeoutMs: num(env.LLM_TIMEOUT_MS, 120_000),
+      stubTokenDelayMs: num(env.STUB_TOKEN_DELAY_MS, 8),
     },
     auth: {
       enabled: bool(env.AUTH_ENABLED, true),

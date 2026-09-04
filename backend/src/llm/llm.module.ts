@@ -23,7 +23,10 @@ export const createChatModel = (config: AppConfig): BaseChatModel => {
       configuration: config.llm.baseUrl ? { baseURL: config.llm.baseUrl } : undefined,
     });
   }
-  return new StubChatModel({ tokenDelayMs: Number(process.env.STUB_TOKEN_DELAY_MS ?? 8) });
+  // From the injected config, not process.env: reading the environment inside a
+  // provider makes the stub impossible to configure per-test, which is exactly how
+  // a timing-dependent test came to pass locally and fail in CI.
+  return new StubChatModel({ tokenDelayMs: config.llm.stubTokenDelayMs });
 };
 
 @Module({

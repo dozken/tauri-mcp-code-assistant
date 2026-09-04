@@ -8,6 +8,7 @@ import request, { type Agent } from 'supertest';
 import { indexStatusSchema, chatResponseSchema } from '@ai-code-companion/contracts';
 import { AppModule } from '../src/app.module.js';
 import { APP_CONFIG, loadConfig } from '../src/config/configuration.js';
+import { CHAT_MODEL } from '../src/llm/llm.module.js';
 
 /**
  * Boots the real Nest application and drives it over HTTP.
@@ -142,21 +143,35 @@ describe('HTTP API', () => {
   });
 
   it('answers 504, not 500, when the model runs past the deadline', async () => {
-    // A separate app: the deadline is read from config at construction.
+    // A model that settles only when the turn is aborted. No sleeps, no racing a
+    // real delay against a real timer: the deadline is the only thing that can end
+    // this turn, so the assertion holds on any runner at any speed.
+    const hangsUntilAborted = {
+      _llmType: () => 'hanging',
+      bindTools: () => hangsUntilAborted,
+      stream: (_messages: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            const reason: unknown = options.signal?.reason;
+            reject(reason instanceof Error ? reason : new Error('aborted'));
+          });
+        }),
+    };
+
+    const base = loadConfig({ CHROMA_ENABLED: 'false', LLM_PROVIDER: 'stub', LOG_LEVEL: 'silent' });
     const slow = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(APP_CONFIG)
       .useValue({
-        ...loadConfig({
-          CHROMA_ENABLED: 'false',
-          LLM_PROVIDER: 'stub',
-          LOG_LEVEL: 'silent',
-          STUB_TOKEN_DELAY_MS: '50',
-          LLM_TIMEOUT_MS: '1',
-        }),
+        ...base,
+        // Short enough to keep the suite quick; the model above never finishes, so
+        // the exact value cannot change the outcome.
+        llm: { ...base.llm, timeoutMs: 200 },
         corsOrigins: ['tauri://localhost'],
         auth: { enabled: true, token: TOKEN, tokenFile: join(root, 'token') },
         metadataDb: join(root, 'slow.sqlite'),
       })
+      .overrideProvider(CHAT_MODEL)
+      .useValue(hangsUntilAborted)
       .compile();
     const slowApp = slow.createNestApplication();
     await slowApp.init();
