@@ -33,6 +33,11 @@ jobs:
   cargo-audit:
     name: Rust advisories
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The action reports through a check run, which the workflow-level
+      # `contents: read` does not allow it to create.
+      checks: write
     steps:
       - uses: actions/checkout@v7
       - uses: rustsec/audit-check@v2
