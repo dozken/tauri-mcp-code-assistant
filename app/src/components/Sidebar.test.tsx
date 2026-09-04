@@ -124,6 +124,44 @@ describe('Sidebar', () => {
     });
   });
 
+  it('submits the path dialog on Enter', async () => {
+    const { onIndexFolder } = renderSidebar();
+
+    await userEvent.click(screen.getByTestId('add-folder'));
+    await userEvent.type(await screen.findByTestId('manual-path'), '/home/dev/web{Enter}');
+
+    await waitFor(() => {
+      expect(onIndexFolder).toHaveBeenCalledWith('/home/dev/web');
+    });
+  });
+
+  it('discards the typed path when the dialog is cancelled', async () => {
+    const { onIndexFolder } = renderSidebar();
+
+    await userEvent.click(screen.getByTestId('add-folder'));
+    await userEvent.type(await screen.findByTestId('manual-path'), '/home/dev/web');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(onIndexFolder).not.toHaveBeenCalled();
+
+    // Reopening must not resurrect the abandoned path.
+    await userEvent.click(screen.getByTestId('add-folder'));
+    expect(await screen.findByTestId('manual-path')).toHaveValue('');
+  });
+
+  it('highlights only the folder the search is scoped to', async () => {
+    act(() => {
+      useAppStore.setState({ roots: [root(), root({ path: '/home/dev/projects/web' })] });
+    });
+    renderSidebar();
+
+    const [api, web] = screen.getAllByRole('button', { name: /api|web/ });
+    await userEvent.click(screen.getByText('api'));
+
+    expect(api).toHaveClass('Mui-selected');
+    expect(web).not.toHaveClass('Mui-selected');
+  });
+
   it('ignores an empty path from the dialog', async () => {
     const { onIndexFolder } = renderSidebar();
 

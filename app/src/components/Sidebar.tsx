@@ -60,10 +60,14 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
     if (picked) await onIndexFolder(picked);
   };
 
-  const submitManual = async (): Promise<void> => {
-    const path = manualPath.trim();
+  const closeManual = (): void => {
     setManualOpen(false);
     setManualPath('');
+  };
+
+  const submitManual = async (): Promise<void> => {
+    const path = manualPath.trim();
+    closeManual();
     if (path) await onIndexFolder(path);
   };
 
@@ -216,7 +220,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
         </>
       ) : null}
 
-      <Dialog open={manualOpen} onClose={() => setManualOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={manualOpen} onClose={closeManual} fullWidth maxWidth="sm">
         <DialogTitle>Index a folder</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -241,7 +245,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setManualOpen(false)}>Cancel</Button>
+          <Button onClick={closeManual}>Cancel</Button>
           <Button
             variant="contained"
             onClick={() => void submitManual()}

@@ -230,6 +230,77 @@ describe('useBackend', () => {
     expect(useAppStore.getState().error).toMatch(/outside the allowed roots/);
   });
 
+  it('marks the app offline when the socket drops', () => {
+    renderHook(() => useBackend());
+    socket.receive('connect');
+
+    socket.receive('disconnect');
+
+    expect(useAppStore.getState().connected).toBe(false);
+  });
+
+  it('loads status immediately when the socket is already connected on mount', async () => {
+    socket.connected = true;
+
+    renderHook(() => useBackend());
+
+    await waitFor(() => {
+      expect(useAppStore.getState().connected).toBe(true);
+    });
+    expect(fetchStatus).toHaveBeenCalled();
+  });
+
+  it('keeps an unfinished or failed turn out of the replayed history', () => {
+    const { result } = renderHook(() => useBackend());
+    act(() => {
+      const store = useAppStore.getState();
+      store.addUserMessage('answered');
+      store.beginAssistantMessage();
+      store.completeAssistantMessage('an answer');
+      store.addUserMessage('failed');
+      store.beginAssistantMessage();
+      store.failAssistantMessage('boom');
+    });
+
+    act(() => {
+      result.current.sendMessage('next');
+    });
+
+    const { payload } = socket.emitted.at(-1) as { payload: { history: unknown[] } };
+    // The errored assistant turn would poison the next prompt with a non-answer.
+    expect(payload.history).toEqual([
+      { role: 'user', content: 'answered' },
+      { role: 'assistant', content: 'an answer' },
+      { role: 'user', content: 'failed' },
+    ]);
+  });
+
+  it('carries the conversation id once the backend has assigned one', () => {
+    const { result } = renderHook(() => useBackend());
+    act(() => {
+      useAppStore.getState().beginAssistantMessage('conv-7');
+      useAppStore.getState().completeAssistantMessage('hi');
+    });
+
+    act(() => {
+      result.current.sendMessage('again');
+    });
+
+    expect(socket.emitted.at(-1)).toMatchObject({ payload: { conversationId: 'conv-7' } });
+  });
+
+  it('explains a contract mismatch as a version skew, not a network error', async () => {
+    const { ContractError } = await import('../api/http');
+    fetchStatus.mockRejectedValue(new ContractError('/status', 'totalChunks: required'));
+    renderHook(() => useBackend());
+
+    socket.receive('connect');
+
+    await waitFor(() => {
+      expect(useAppStore.getState().error).toMatch(/different versions/);
+    });
+  });
+
   it('removes every listener on unmount', () => {
     const { unmount } = renderHook(() => useBackend());
     expect(socket.listenerCount(SOCKET_EVENTS.chatToken)).toBe(1);

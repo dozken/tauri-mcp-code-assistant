@@ -52,11 +52,16 @@ export const initialState: AppState = {
   connected: false,
   messages: [],
   isStreaming: false,
+  // Named explicitly, undefined and all: `setState` merges, so an optional key
+  // left out here would survive a "reset" and leak into the next state.
+  conversationId: undefined,
   roots: [],
   activeJob: null,
   vectorStore: 'memory',
   metadataStore: 'memory',
   totalChunks: 0,
+  selectedRoot: undefined,
+  error: undefined,
 };
 
 const createId = (): string => {

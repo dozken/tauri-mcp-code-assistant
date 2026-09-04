@@ -162,3 +162,25 @@ describe('appStore', () => {
     expect(useAppStore.getState().error).toBe('permission denied');
   });
 });
+
+describe('initialState', () => {
+  it('names every optional key, so `setState(initialState)` is a real reset', () => {
+    // `setState` merges: an optional key omitted here would survive the reset and
+    // leak into the next test (or, in the app, the next conversation).
+    useAppStore.setState({
+      selectedRoot: '/repo',
+      error: 'boom',
+      conversationId: 'conv-1',
+      connected: true,
+    });
+
+    useAppStore.setState(initialState);
+
+    expect(useAppStore.getState()).toMatchObject({
+      selectedRoot: undefined,
+      error: undefined,
+      conversationId: undefined,
+      connected: false,
+    });
+  });
+});
