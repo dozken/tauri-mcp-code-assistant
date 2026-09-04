@@ -293,19 +293,45 @@ esbuild does not emit `design:paramtypes`, so any test that boots the Nest conta
 fails to resolve constructor dependencies — the same reason `nest start` uses the SWC
 builder. That one plugin is what makes `test/*.e2e.spec.ts` possible.
 
-**Mutation testing** runs on demand and nightly, never on a PR — it takes minutes.
-It is the check that grades the other checks: coverage says a line ran, Stryker says a
-test would have _noticed_. It is why `contracts` has 52 schema tests — the first run
-scored 32% there, because nothing pinned down the stream-event literals.
+**Mutation testing** runs on demand and nightly, never on a PR — it takes tens of
+minutes. It is the check that grades the other checks: coverage says a line ran,
+Stryker says a test would have _noticed_. Every number below moved because reading the
+survivor list produced work worth doing.
 
-Two deliberate exclusions, both because a mutant that no sensible test would kill only
-dilutes the signal:
+| Workspace   | First run | After acting on it | What the survivors were                            |
+| ----------- | --------- | ------------------ | -------------------------------------------------- |
+| `contracts` | 32%       | 81%                | Nothing pinned the stream-event literals           |
+| `app`       | 62%       | 69%+               | Branches the component tests skipped               |
+| `backend`   | 65%       | see below          | Lookup tables, plus two genuinely untested modules |
 
-- `EXTENSION_LANGUAGES` in `chunker.ts` is fenced with `// Stryker disable all`. A
-  lookup table is data; excluding it moved that file from 53% to 67%.
-- `backend/vitest.mutation.config.ts` drops the container tests from the mutation run.
-  Stryker re-runs the suite once per mutant, and booting a Nest app 1,500 times
-  measures the framework, not the branch logic.
+The app round found the `Clear chat` chip, the offline placeholder, the scoped/unscoped
+caption and the tool accordion's empty state were all unasserted — and `MessageBubble`
+had no spec at all. Writing those tests turned up two real bugs: `initialState` omitted
+its optional keys, so `setState(initialState)` was not a reset (Zustand merges), and the
+folder dialog's Cancel kept the abandoned path.
+
+The backend round found `logging.ts` at 15% and `mcp-tools.service.ts` at 35% — the two
+files holding properties that matter most and are easiest to forget: credentials are
+_removed_ rather than masked, the MCP logger writes to fd 2 because stdout is the
+JSON-RPC channel, and the spawned MCP child gets its configuration explicitly because a
+stdio child does not inherit the parent environment.
+
+Deliberate exclusions, because a mutant that no sensible test would kill only dilutes
+the signal:
+
+- Lookup tables are fenced with `// Stryker disable all`: `EXTENSION_LANGUAGES`,
+  `DEFAULT_EXTENSIONS`, `DEFAULT_IGNORED_DIRECTORIES`, `MODIFIERS`, `KEYWORD_KINDS`,
+  `SNIPPET_TEMPLATES`. Data, not logic — excluding `EXTENSION_LANGUAGES` alone moved
+  `chunker.ts` from 53% to 67%.
+- `backend/vitest.mutation.config.ts` drops the container tests. Stryker re-runs the
+  suite once per mutant, and booting a Nest app 1,500 times measures the framework, not
+  the branch logic. The cost is that `chat.gateway.ts` and `events.gateway.ts` score
+  low here despite being covered — by `test/gateway.e2e.spec.ts`, which this config
+  excludes.
+- The app's score is capped by JSX: Stryker mutates `sx={{ px: 2 }}` to `sx={{}}` and
+  counts a survivor. Roughly 60% of the app's remaining survivors are styling props.
+  The threshold is set to reflect that rather than moving styles around to flatter a
+  number.
 
 ---
 
