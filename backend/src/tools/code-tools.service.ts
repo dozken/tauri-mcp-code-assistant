@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { basename, relative } from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
@@ -118,11 +118,14 @@ export class CodeToolsService {
       this.config.indexing.allowedRoots,
       'file',
     );
-    const raw = await readFile(path);
-    if (raw.byteLength > MAX_EXPLAIN_BYTES) {
-      throw new Error(`File is too large to explain (${raw.byteLength} bytes)`);
+    // stat before read: reading a multi-gigabyte file into memory just to reject
+    // it afterwards is how a "too large" guard becomes an OOM.
+    const { size } = await stat(path);
+    if (size > MAX_EXPLAIN_BYTES) {
+      throw new Error(`File is too large to explain (${size} bytes, limit ${MAX_EXPLAIN_BYTES})`);
     }
 
+    const raw = await readFile(path);
     const content = raw.toString('utf8');
     const lines = content.split(/\r?\n/);
     const language = detectLanguage(path);

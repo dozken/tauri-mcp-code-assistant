@@ -31,14 +31,16 @@ interface Segment {
  */
 export const splitFences = (content: string): Segment[] => {
   const segments: Segment[] = [];
-  const pattern = /```([\w+-]*)\n?([\s\S]*?)(?:```|$)/g;
+  // The backreference matches a closing fence of the same length, so a snippet
+  // wrapped in ```` (because it contains ``` itself) is not cut short.
+  const pattern = /(`{3,})([\w+-]*)\n?([\s\S]*?)(?:\1|$)/g;
   let cursor = 0;
 
   for (let match = pattern.exec(content); match !== null; match = pattern.exec(content)) {
     if (match.index > cursor) {
       segments.push({ kind: 'text', content: content.slice(cursor, match.index) });
     }
-    segments.push({ kind: 'code', language: match[1] || undefined, content: match[2] });
+    segments.push({ kind: 'code', language: match[2] || undefined, content: match[3] });
     cursor = match.index + match[0].length;
   }
 

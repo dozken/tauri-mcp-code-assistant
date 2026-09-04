@@ -29,6 +29,12 @@ describe('splitFences', () => {
     ]);
   });
 
+  it('keeps an inner ``` intact inside a widened fence', () => {
+    expect(splitFences('````md\nSee:\n```ts\nconst a = 1;\n```\n````')).toEqual([
+      { kind: 'code', language: 'md', content: 'See:\n```ts\nconst a = 1;\n```\n' },
+    ]);
+  });
+
   it('treats plain text as a single segment', () => {
     expect(splitFences('just words')).toEqual([{ kind: 'text', content: 'just words' }]);
   });

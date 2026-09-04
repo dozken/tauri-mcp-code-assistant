@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   ConflictException,
@@ -112,7 +112,14 @@ export class IndexingService implements OnModuleInit {
   }
 
   async removeRoot(inputPath: string): Promise<void> {
-    const root = resolve(inputPath);
+    // Roots are keyed by their real path. Resolve symlinks to match, but fall back
+    // to the literal path so a folder that has since been deleted from disk can
+    // still be removed from the index.
+    const candidate = resolve(inputPath);
+    const root = this.roots.has(candidate)
+      ? candidate
+      : await realpath(candidate).catch(() => candidate);
+
     if (!this.roots.has(root)) {
       throw new NotFoundException(`Not an indexed folder: ${root}`);
     }

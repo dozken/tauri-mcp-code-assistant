@@ -9,6 +9,19 @@ import type {
  * MCP server so an agent sees identical text through either transport.
  */
 
+/**
+ * Indexed Markdown routinely contains ``` fences of its own, which would close the
+ * wrapper early and corrupt everything after it. CommonMark allows longer fences,
+ * so pick one longer than anything inside the snippet.
+ */
+const fenceFor = (text: string): string => {
+  const longest = [...text.matchAll(/^\s*(`{3,})/gm)].reduce(
+    (max, match) => Math.max(max, match[1].length),
+    2,
+  );
+  return '`'.repeat(longest + 1);
+};
+
 export const formatSearchResult = (result: SearchCodeResult): string => {
   if (result.matches.length === 0) {
     return `No indexed code matched "${result.query}". Index a folder first with the /index endpoint.`;
@@ -17,7 +30,8 @@ export const formatSearchResult = (result: SearchCodeResult): string => {
   return result.matches
     .map((match, position) => {
       const header = `${position + 1}. ${match.relativePath}:${match.startLine}-${match.endLine} (score ${match.score})`;
-      return `${header}\n\`\`\`${match.language}\n${match.text}\n\`\`\``;
+      const fence = fenceFor(match.text);
+      return `${header}\n${fence}${match.language}\n${match.text}\n${fence}`;
     })
     .join('\n\n');
 };
@@ -42,5 +56,7 @@ export const formatExplainResult = (result: ExplainFileResult): string => {
   ].join('\n');
 };
 
-export const formatSnippetResult = (result: GenerateSnippetResult): string =>
-  `\`\`\`${result.language}\n${result.code}\`\`\`\n\n${result.notes}`;
+export const formatSnippetResult = (result: GenerateSnippetResult): string => {
+  const fence = fenceFor(result.code);
+  return `${fence}${result.language}\n${result.code}${fence}\n\n${result.notes}`;
+};

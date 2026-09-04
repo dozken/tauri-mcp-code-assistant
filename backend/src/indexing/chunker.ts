@@ -16,6 +16,9 @@ interface Segment {
   readonly line: number;
 }
 
+// A lookup table is data, not logic: every entry is a survivable mutant that no
+// sensible test would pin down, which would otherwise dominate the mutation score.
+// Stryker disable all
 const EXTENSION_LANGUAGES: Readonly<Record<string, string>> = {
   ts: 'typescript',
   tsx: 'typescript',
@@ -55,6 +58,7 @@ const EXTENSION_LANGUAGES: Readonly<Record<string, string>> = {
   vue: 'vue',
   svelte: 'svelte',
 };
+// Stryker restore all
 
 export const detectLanguage = (filePath: string): string => {
   const extension = filePath.split('.').pop()?.toLowerCase() ?? '';

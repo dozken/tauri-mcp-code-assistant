@@ -220,6 +220,11 @@ Playwright uses the browser build of the same React app (Tauri's webview is not 
 the desktop shell is covered by `npm run tauri:build`. On a machine with a preinstalled
 Chromium, set `PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome` instead of `npx playwright install`.
 
+Mutation testing is wired up but not part of `npm test` — it takes minutes, not seconds.
+`EXTENSION_LANGUAGES` in `chunker.ts` is fenced off with `// Stryker disable all`: a lookup table
+is data, and its survivable mutants would otherwise swamp the score (53% → 67% on that file once
+excluded).
+
 ---
 
 ## Design notes
@@ -253,6 +258,16 @@ The backend reads local files, so:
 - the walker skips symlinks, honours `.gitignore`, and caps file size;
 - pino redacts `authorization`, `cookie` and `apiKey` fields.
 
+What it does **not** do yet, and would need before shipping:
+
+- **No authentication on the local API.** CORS stops another origin from *reading* responses, but
+  not from *sending* a simple cross-origin `POST`. A shared secret in a header (issued by the
+  Tauri shell) or an `Origin` allow-list middleware would close it.
+- **`explain_file` will read any file inside an allowed root**, `.env` included. Indexing honours
+  `.gitignore`; this tool deliberately does not, because you may want to explain an ignored file.
+  Adding a secret-file deny-list is the obvious hardening step.
+- **No request timeout on `POST /chat`.** A hung upstream model holds the connection open.
+
 ### Known limitations
 
 - Re-indexing a folder rewrites it wholesale; there is no incremental/watch mode.
@@ -260,3 +275,7 @@ The backend reads local files, so:
 - Chat history is held by the client and replayed on each turn; there is no server-side session.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.
 - Only one indexing job runs at a time (a second request gets `409`).
+- The wire contract is duplicated in `app/src/types.ts`; a generated `packages/contracts`
+  workspace is the natural next step.
+- `index.html` pins a CSP to `127.0.0.1:3001`, so changing `VITE_BACKEND_URL` means changing the
+  CSP too.

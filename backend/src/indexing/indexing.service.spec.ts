@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -144,6 +144,23 @@ describe('IndexingService', () => {
     expect(await store.count()).toBe(0);
     expect(await metadata.listRoots()).toEqual([]);
     await expect(service.removeRoot(root)).rejects.toThrow(/Not an indexed folder/);
+  });
+
+  it('removes a root that was added through a symlinked path', async () => {
+    const link = join(await realpath(tmpdir()), `companion-link-${Date.now()}`);
+    await symlink(root, link, 'dir');
+    try {
+      await service.startIndexing(link);
+      await settle(service);
+      expect((await service.getStatus()).roots[0].path).toBe(root);
+
+      // Removal has to resolve the symlink too, or the folder is unremovable.
+      await service.removeRoot(link);
+
+      expect((await service.getStatus()).roots).toEqual([]);
+    } finally {
+      await rm(link, { force: true });
+    }
   });
 
   it('marks restored roots as stale when the previous store was not persistent', async () => {

@@ -124,6 +124,15 @@ describe('CodeToolsService', () => {
     it('refuses a directory', async () => {
       await expect(tools.explainFile({ path: root })).rejects.toThrow(/Not a file/);
     });
+
+    it('rejects a file above the size limit', async () => {
+      const big = join(root, 'huge.ts');
+      await writeFile(big, 'x'.repeat(600 * 1024));
+
+      await expect(tools.explainFile({ path: big })).rejects.toThrow(
+        /too large to explain \(614400 bytes, limit 524288\)/,
+      );
+    });
   });
 
   describe('generate_snippet', () => {
