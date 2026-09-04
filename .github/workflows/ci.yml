@@ -47,7 +47,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:cov
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage
@@ -68,7 +68,7 @@ jobs:
       # e2e/a11y.spec.ts runs axe against the rendered app; jsx-a11y only sees
       # the source, so the two catch different classes of problem.
       - run: npm run test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -108,7 +108,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run mutation
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: mutation-reports
