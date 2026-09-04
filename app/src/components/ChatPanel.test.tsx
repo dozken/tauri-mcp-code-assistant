@@ -150,6 +150,67 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('send-button')).toBeDisabled();
   });
 
+  it('offers example prompts, and sends the one that is clicked', async () => {
+    const onSend = vi.fn();
+    const user = userEvent.setup();
+    renderPanel(onSend);
+
+    await user.click(screen.getByText('Where is authentication handled?'));
+
+    expect(onSend).toHaveBeenCalledExactlyOnceWith('Where is authentication handled?');
+  });
+
+  it('disables the example prompts while offline', () => {
+    useAppStore.setState({ connected: false });
+    renderPanel(vi.fn());
+
+    expect(screen.getByText('Explain the indexing service').closest('div')).toHaveClass(
+      'Mui-disabled',
+    );
+  });
+
+  it('explains what the composer is waiting for when offline', () => {
+    useAppStore.setState({ connected: false });
+    renderPanel(vi.fn());
+
+    expect(screen.getByPlaceholderText(/Waiting for the backend/)).toBeInTheDocument();
+  });
+
+  it('says whether the search is scoped to one folder', () => {
+    const { unmount } = renderPanel(vi.fn());
+    expect(screen.getByText('Searching all indexed folders')).toBeInTheDocument();
+    unmount();
+
+    act(() => {
+      useAppStore.getState().selectRoot('/home/dev/api');
+    });
+    renderPanel(vi.fn());
+    expect(screen.getByText('Scoped to /home/dev/api')).toBeInTheDocument();
+  });
+
+  it('offers Clear chat only once there is a transcript, and clears it', async () => {
+    const user = userEvent.setup();
+    renderPanel(vi.fn());
+    expect(screen.queryByText('Clear chat')).not.toBeInTheDocument();
+
+    act(() => {
+      useAppStore.getState().addUserMessage('hello');
+    });
+    await user.click(screen.getByText('Clear chat'));
+
+    expect(useAppStore.getState().messages).toEqual([]);
+    expect(screen.getByText('Ask something about your codebase')).toBeInTheDocument();
+  });
+
+  it('surfaces a store-level error above the composer', () => {
+    act(() => {
+      useAppStore.getState().setError('Cannot reach the backend');
+    });
+    renderPanel(vi.fn());
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Cannot reach the backend');
+  });
+
   it('shows a backend error without losing the transcript', async () => {
     renderPanel(vi.fn());
 
