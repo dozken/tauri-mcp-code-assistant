@@ -295,9 +295,17 @@ builder. That one plugin is what makes `test/*.e2e.spec.ts` possible.
 
 **Mutation testing** runs on demand and nightly, never on a PR — it takes minutes.
 It is the check that grades the other checks: coverage says a line ran, Stryker says a
-test would have _noticed_. `EXTENSION_LANGUAGES` in `chunker.ts` is fenced off with
-`// Stryker disable all` — a lookup table is data, and its survivable mutants would
-otherwise swamp the score (53% → 67% on that file once excluded).
+test would have _noticed_. It is why `contracts` has 52 schema tests — the first run
+scored 32% there, because nothing pinned down the stream-event literals.
+
+Two deliberate exclusions, both because a mutant that no sensible test would kill only
+dilutes the signal:
+
+- `EXTENSION_LANGUAGES` in `chunker.ts` is fenced with `// Stryker disable all`. A
+  lookup table is data; excluding it moved that file from 53% to 67%.
+- `backend/vitest.mutation.config.ts` drops the container tests from the mutation run.
+  Stryker re-runs the suite once per mutant, and booting a Nest app 1,500 times
+  measures the framework, not the branch logic.
 
 ---
 
