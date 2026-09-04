@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    "packages/contracts": {
+      // A library: its barrel is the public API, so an export that no consumer
+      // happens to use today is a contract, not dead code.
+      "includeEntryExports": false,
+    },
+    "backend": {
+      "entry": ["src/**/*.spec.ts", "test/**/*.spec.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
+      // Loaded by pino as a worker target string, so no import exists to find.
+      "ignoreDependencies": ["pino-pretty"],
+    },
+    "app": {
+      "entry": ["src/**/*.test.{ts,tsx}", "e2e/**/*.spec.ts"],
+      "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts", "*.config.ts"],
+    },
+  },
+  // Ships with the Rust toolchain, not with npm.
+  "ignoreBinaries": ["rustfmt"],
+  "includeEntryExports": true,
+}
