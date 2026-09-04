@@ -301,8 +301,18 @@ survivor list produced work worth doing.
 | Workspace   | First run | After acting on it | What the survivors were                            |
 | ----------- | --------- | ------------------ | -------------------------------------------------- |
 | `contracts` | 32%       | 81%                | Nothing pinned the stream-event literals           |
-| `app`       | 62%       | 69%+               | Branches the component tests skipped               |
+| `app`       | 62%       | 69%                | Branches the component tests skipped               |
 | `backend`   | 65%       | see below          | Lookup tables, plus two genuinely untested modules |
+
+The backend's five weakest files, re-measured after acting on the report:
+
+| File                    | Before | After |
+| ----------------------- | ------ | ----- |
+| `logging.ts`            | 15%    | 76%   |
+| `file-walker.ts`        | 50%    | 77%   |
+| `mcp-tools.service.ts`  | 35%    | 59%   |
+| `outline.ts`            | 73%    | 78%   |
+| `code-tools.service.ts` | 67%    | 68%   |
 
 The app round found the `Clear chat` chip, the offline placeholder, the scoped/unscoped
 caption and the tool accordion's empty state were all unasserted — and `MessageBubble`
