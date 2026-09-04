@@ -14,6 +14,11 @@ exercised for real. Set `OPENAI_API_KEY` and the identical code path runs agains
 
 ## Quick start
 
+> **npm 11+ for a fresh install.** npm 10's dependency resolver crashes on
+> Vitest 4's peer set (`Cannot read properties of null (reading 'edgesOut')`).
+> `npm ci` — what CI runs — works on either. Use `npx npm@11 install` if your
+> npm is older.
+
 ```bash
 npm install          # or: bun install — builds packages/contracts via `prepare`
 
