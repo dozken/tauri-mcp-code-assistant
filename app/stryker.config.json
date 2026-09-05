@@ -14,7 +14,6 @@
     "src/**/*.{ts,tsx}",
     "!src/**/*.test.{ts,tsx}",
     "!src/main.tsx",
-    "!src/theme.ts",
     "!src/types.ts",
     "!src/test/**",
     "!src/api/config.ts"
