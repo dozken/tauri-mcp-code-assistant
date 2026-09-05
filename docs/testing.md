@@ -23,6 +23,28 @@ Three things came out of the last full run, and they are the pattern to follow:
   whose other branch could never run on a POSIX runner. Splitting and re-joining is already
   the identity in that case, so the branch bought a mutant and nothing else.
 
+### The score is a floor, not a measurement
+
+Project-wide, last measured: contracts 81%, backend 84%, app 72%, in about forty minutes.
+The `break` threshold in each `stryker.config.json` sits a few points under that, so ordinary
+churn passes and a real regression fails the nightly job.
+
+A floor, because **Stryker reports some mutants as survived that the suite does kill.** Two
+were verified by hand — `filesSkipped += 1` flipped to `-=`, and `.digest('hex')` to
+`.digest("")` — and each fails two existing tests the moment it is injected, under both
+vitest configs. The report calls them survivors.
+
+The JSON says why: those mutants carry `testsCompleted: 2` and stop, while killed mutants on
+the adjacent line show 1, 9, 12 and 28. The runner is not reaching the tests that would kill
+them. It is not the coverage-analysis setting — `perTest`, `all` and `off` all produce a
+byte-identical result, which is worth knowing before someone spends an afternoon on it, as
+one of us already has.
+
+So: **triage a survivor by injecting it, not by trusting the row.** Assert the injection
+actually matched the source first — a `replace` that silently finds nothing produces a
+passing suite that looks exactly like "the mutant survived", which is how the wrong
+conclusion gets reached twice.
+
 ### What we do not chase
 
 Mutation score is a means, not a target. Two categories are deliberately excluded rather
