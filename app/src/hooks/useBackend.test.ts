@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { SOCKET_EVENTS, type IndexStatus } from '@ai-code-companion/contracts';
 import { initialState, useAppStore } from '../store/appStore';
+import { ContractError, HttpError } from '../api/http';
 
 /** A Socket.IO stand-in that records handlers so a test can drive the server side. */
 class FakeSocket {
@@ -374,5 +375,104 @@ describe('useBackend', () => {
       expect(socket.listenerCount(event)).toBe(0);
     }
     expect(socket.listenerCount('connect')).toBe(0);
+  });
+});
+
+describe('useBackend paths the transcript depends on', () => {
+  beforeEach(() => {
+    useAppStore.setState({ ...initialState, messages: [] });
+    socket.connected = false;
+  });
+
+  it('attaches a streamed tool call to the message it belongs to', () => {
+    // `chat:tool` is the only source of the tool chips, and nothing exercised it:
+    // the handler could be emptied and every test still passed.
+    renderHook(() => useBackend());
+    act(() => {
+      useAppStore.getState().beginAssistantMessage();
+    });
+
+    socket.receive(SOCKET_EVENTS.chatTool, {
+      conversationId: 'c',
+      type: 'tool',
+      tool: {
+        name: 'search_code',
+        args: { query: 'auth' },
+        result: 'hit',
+        durationMs: 4,
+        failed: false,
+      },
+    });
+
+    expect(useAppStore.getState().messages[0]?.toolCalls).toEqual([
+      expect.objectContaining({ name: 'search_code', failed: false }),
+    ]);
+  });
+
+  it('does not load status on mount while the socket is still connecting', () => {
+    // The `connect` handler does it. Calling it eagerly too would fire a request
+    // against a backend that is not there yet, and show its failure as an error.
+    renderHook(() => useBackend());
+
+    expect(fetchStatus).not.toHaveBeenCalled();
+  });
+
+  it('opens both sides of the turn when a message is sent', () => {
+    socket.connected = true;
+    const { result } = renderHook(() => useBackend());
+
+    act(() => {
+      result.current.sendMessage('where do we authenticate?');
+    });
+
+    const messages = useAppStore.getState().messages;
+    expect(messages.map((entry) => entry.role)).toEqual(['user', 'assistant']);
+    expect(messages[1]?.streaming).toBe(true);
+  });
+
+  it('clears the buffer between flushes, so tokens are not replayed', () => {
+    renderHook(() => useBackend());
+    act(() => {
+      useAppStore.getState().beginAssistantMessage();
+    });
+
+    // Two flushes, not one: a buffer that is never emptied is invisible until
+    // something forces a second flush, and then it replays what it already sent.
+    socket.receive(SOCKET_EVENTS.chatToken, { conversationId: 'c', type: 'token', token: 'one ' });
+    socket.receive(SOCKET_EVENTS.chatTool, {
+      conversationId: 'c',
+      type: 'tool',
+      tool: {
+        name: 'search_code',
+        args: { query: 'auth' },
+        result: 'hit',
+        durationMs: 4,
+        failed: false,
+      },
+    });
+    socket.receive(SOCKET_EVENTS.chatToken, { conversationId: 'c', type: 'token', token: 'two' });
+    socket.receive(SOCKET_EVENTS.chatError, {
+      conversationId: 'c',
+      type: 'error',
+      error: 'stopped',
+    });
+
+    expect(useAppStore.getState().messages[0]?.content).toBe('one two');
+  });
+
+  it.each([
+    ['a contract mismatch', new ContractError('/status', 'bad shape'), true],
+    ['a plain HTTP failure', new HttpError('backend exploded', 500), false],
+  ])('explains %s with a version hint only where one applies', async (_label, error, hints) => {
+    fetchStatus.mockRejectedValueOnce(error);
+    const { result } = renderHook(() => useBackend());
+
+    await act(async () => {
+      await result.current.refreshStatus();
+    });
+
+    const message = useAppStore.getState().error ?? '';
+    expect(message).toContain(error.message);
+    expect(message.includes('different versions')).toBe(hints);
   });
 });
