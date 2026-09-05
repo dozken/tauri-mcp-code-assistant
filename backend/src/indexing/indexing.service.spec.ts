@@ -1,4 +1,13 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -238,6 +247,19 @@ describe('IndexingService', () => {
     });
   });
 
+  it('embeds nothing from a file that is binary despite a source extension', async () => {
+    // A minified bundle, a compiled artefact checked in as `.ts`, a `.md` that is
+    // really a blob: the extension filter lets it through, and embedding it would
+    // fill the store with noise that then answers real queries.
+    await writeFile(join(root, 'bundle.ts'), `export const x = 1;\u0000\u0000binary`);
+
+    await service.startIndexing(root);
+    await settle(service);
+
+    const hits = await store.search('binary', { limit: 20 });
+    expect(hits.map((match) => match.metadata.relativePath)).not.toContain('bundle.ts');
+  });
+
   describe('incremental re-indexing', () => {
     /** Counts embedding calls, which is the cost incremental indexing exists to avoid. */
     const countEmbeds = (target: MemoryVectorStore): { calls: () => number } => {
@@ -357,6 +379,49 @@ describe('IndexingService', () => {
       const after = await service.getStatus();
       expect(after.totalChunks).toBeLessThan(before.totalChunks);
       expect(after.totalChunks).toBe(after.roots[0]?.chunkCount);
+    });
+
+    it('skips a file on size and mtime alone, without opening it', async () => {
+      // Proving the cheap path actually runs, by making the two paths disagree:
+      // same length, same timestamp, different bytes. Hashing would notice; the
+      // stat comparison deliberately does not, and that is the trade — a restored
+      // mtime plus an identical length is indistinguishable from no edit at all.
+      const file = join(root, 'auth.ts');
+      const original = await readFile(file, 'utf8');
+
+      // A fixed whole-millisecond timestamp on both sides. It has to be pinned
+      // before the first run, because that is the value the record keeps, and
+      // `stat` reports a sub-millisecond precision that `utimes` cannot restore
+      // from a Date — "put it back how it was" misses by a fraction.
+      const pinned = new Date(1_700_000_000_000);
+      await utimes(file, pinned, pinned);
+      await service.startIndexing(root);
+      await settle(service);
+
+      await writeFile(file, 'x'.repeat(original.length));
+      await utimes(file, pinned, pinned);
+
+      const embeds = countEmbeds(store);
+      await service.startIndexing(root);
+      await settle(service);
+
+      expect(embeds.calls()).toBe(0);
+    });
+
+    it('keeps the chunks of files a cancelled run never reached', async () => {
+      // `forgetMissing` drops everything the walk did not see. A cancelled run has
+      // not seen most of the folder, so running it there would delete the index
+      // the user still has — the counters would look fine and search would be empty.
+      await service.startIndexing(root);
+      await settle(service);
+      const before = await service.getStatus();
+      expect(before.totalChunks).toBeGreaterThan(0);
+
+      await service.startIndexing(root);
+      service.cancel();
+      await settle(service);
+
+      expect((await service.getStatus()).totalChunks).toBe(before.totalChunks);
     });
 
     it('re-indexes from scratch after a restart lost the in-memory chunks', async () => {

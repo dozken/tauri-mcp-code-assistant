@@ -308,6 +308,16 @@ describe('ChatService deadline', () => {
     expect(last).toMatchObject({ error: expect.stringContaining('LLM_TIMEOUT_MS') });
   });
 
+  it('names the deadline in seconds once it is longer than a second', async () => {
+    // The default is 120s, so the seconds branch is the one every real user sees;
+    // the other tests all sit under a second and would never notice it break.
+    const chat = chatServiceWithWedgedTool(1000);
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(events.at(-1)).toMatchObject({ error: expect.stringContaining('within 1s') });
+  });
+
   it('rejects the blocking /chat variant rather than holding the connection', async () => {
     const { chat } = await buildChatService({ timeoutMs: 1, tokenDelayMs: 20 });
 
