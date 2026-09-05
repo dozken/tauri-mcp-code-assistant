@@ -31,7 +31,9 @@ export const App = () => {
   const totalChunks = useAppStore((state) => state.totalChunks);
   // One source of truth: the tooltip and the chip colour say the same thing, and
   // splitting the condition let them drift apart without a test noticing.
-  const persisted = vectorStore === 'chroma';
+  // Any store but the in-memory one keeps its chunks across a restart. Naming
+  // `chroma` here stopped being right the moment a plugin could add a third.
+  const persisted = vectorStore !== 'memory';
 
   return (
     <Box sx={styles.shell}>
@@ -57,7 +59,7 @@ export const App = () => {
             <Tooltip
               title={
                 persisted
-                  ? 'Chunks are persisted in ChromaDB'
+                  ? `Chunks are persisted in ${vectorStore}`
                   : 'Chroma is unreachable — using the in-memory store, which is lost on restart'
               }
             >

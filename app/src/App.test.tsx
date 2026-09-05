@@ -66,17 +66,22 @@ describe('App', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(/lost on restart/);
   });
 
-  it('says the index is persisted when Chroma is backing it', async () => {
-    const user = userEvent.setup();
-    act(() => {
-      useAppStore.setState({ vectorStore: 'chroma' });
-    });
-    renderApp();
+  it.each(['chroma', 'qdrant'])(
+    'says the index is persisted, naming the %s store',
+    async (store) => {
+      // Named, not hardcoded: a plugin store has to be describable by the UI too,
+      // and "persisted in ChromaDB" would be a lie about any of them but one.
+      const user = userEvent.setup();
+      act(() => {
+        useAppStore.setState({ vectorStore: store });
+      });
+      renderApp();
 
-    await user.hover(screen.getByText('chroma · 0 chunks'));
+      await user.hover(screen.getByText(`${store} · 0 chunks`));
 
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(/persisted in ChromaDB/);
-  });
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(`persisted in ${store}`);
+    },
+  );
 
   it('passes the backend actions down to the panes', async () => {
     const user = userEvent.setup();

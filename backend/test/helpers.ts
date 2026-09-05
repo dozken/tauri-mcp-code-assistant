@@ -1,5 +1,9 @@
 import type { PinoLogger } from 'nestjs-pino';
 import { loadConfig, type AppConfig } from '../src/config/configuration.js';
+import { Context } from '../src/plugins/context.js';
+import { loadPlugins } from '../src/plugins/loader.js';
+import { vectorStorePlugin } from '../src/vector/vector-store.plugin.js';
+import { chatModelPlugin } from '../src/llm/chat-model.plugin.js';
 
 /** A PinoLogger stand-in: the unit tests care about behaviour, not log output. */
 export const silentLogger = (): PinoLogger => {
@@ -57,4 +61,18 @@ export const recordingLogger = (): PinoLogger & { lines: LoggedLine[] } => {
 export const testConfig = (overrides: Partial<AppConfig> = {}): AppConfig => {
   const base = loadConfig({ CHROMA_ENABLED: 'false', LLM_PROVIDER: 'stub' });
   return { ...base, ...overrides };
+};
+
+/**
+ * A context with the built-in plugins loaded — the same list the app boots with.
+ * Unit tests get the real registries rather than a stub, so a test cannot pass
+ * against extension points the application does not actually have.
+ */
+export const testPlugins = async (): Promise<Context> => {
+  const ctx = Context.create();
+  await loadPlugins(ctx, [
+    { plugin: vectorStorePlugin, config: undefined as never },
+    { plugin: chatModelPlugin, config: undefined as never },
+  ]);
+  return ctx;
 };

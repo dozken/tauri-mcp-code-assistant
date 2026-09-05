@@ -95,9 +95,10 @@ describe('indexing schemas', () => {
     const base = { roots: [], vectorStore: 'memory', metadataStore: 'sqlite', totalChunks: 0 };
 
     expect(indexStatusSchema.safeParse({ ...base, activeJob }).success).toBe(false);
-    expect(
-      indexStatusSchema.safeParse({ ...base, activeJob: null, vectorStore: 'pinecone' }).success,
-    ).toBe(false);
+    // The store name is open — a plugin can add one — but it still has to be a name.
+    expect(indexStatusSchema.safeParse({ ...base, activeJob: null, vectorStore: '' }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -296,8 +297,11 @@ describe('indexing payloads', () => {
   it.each([
     ['chroma', true],
     ['memory', true],
-    ['pinecone', false],
-  ])('vector store kind %s', (kind, valid) => {
+    // Not a closed set: a plugin registers the kind, and the UI has to be able to
+    // show whatever is actually running.
+    ['qdrant', true],
+    ['', false],
+  ])('vector store kind %p', (kind, valid) => {
     expect(vectorStoreKindSchema.safeParse(kind).success).toBe(valid);
   });
 

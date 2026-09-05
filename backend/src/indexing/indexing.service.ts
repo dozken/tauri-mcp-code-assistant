@@ -18,6 +18,8 @@ import {
 } from '../common/metadata-store.js';
 import { resolveWithinRoots } from '../security/path-guard.js';
 import { VectorStoreService } from '../vector/vector-store.service.js';
+import { PLUGIN_CONTEXT } from '../extensions/extensions.module.js';
+import type { Context } from '../plugins/context.js';
 import type { CodeChunk } from '../vector/vector-store.types.js';
 import { chunkText, detectLanguage } from './chunker.js';
 import { walkFiles, type WalkedFile } from './file-walker.js';
@@ -54,9 +56,20 @@ export class IndexingService implements OnModuleInit {
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(METADATA_STORE) private readonly metadata: MetadataStore,
+    @Inject(PLUGIN_CONTEXT) private readonly plugins: Context,
     private readonly vectorStore: VectorStoreService,
     @InjectPinoLogger(IndexingService.name) private readonly logger: PinoLogger,
   ) {}
+
+  /**
+   * Whether the store that wrote a root keeps it across a restart. Asked of the
+   * plugin that registered the kind rather than inferred from its name: a
+   * third-party store called anything at all still knows the answer, and getting
+   * this wrong either re-indexes needlessly or serves an index that is not there.
+   */
+  private survivesRestart(kind: string): boolean {
+    return this.plugins.require('vectorStores').describe(kind)?.persistent === true;
+  }
 
   async onModuleInit(): Promise<void> {
     for (const record of await this.metadata.listRoots()) {
@@ -65,8 +78,8 @@ export class IndexingService implements OnModuleInit {
         fileCount: record.fileCount,
         chunkCount: record.chunkCount,
         lastIndexedAt: record.lastIndexedAt,
-        // Chunks written to the in-memory store died with the previous process.
-        stale: record.store !== 'chroma',
+        // Chunks written to a non-persistent store died with the previous process.
+        stale: !this.survivesRestart(record.store),
       });
     }
     // Stryker disable next-line all: log payload — see docs/testing.md#logging
@@ -131,7 +144,7 @@ export class IndexingService implements OnModuleInit {
     return {
       activeJob: this.activeJob === null ? null : toProgressEvent(this.activeJob),
       roots: [...this.roots.values()].toSorted((a, b) => a.path.localeCompare(b.path)),
-      vectorStore: this.vectorStore.kind,
+      vectorStore: await this.vectorStore.resolvedStoreKind().catch(() => this.vectorStore.kind),
       metadataStore: this.metadata.kind,
       totalChunks: await this.vectorStore.count().catch(() => 0),
     };

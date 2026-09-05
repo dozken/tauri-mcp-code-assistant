@@ -4,7 +4,7 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { StubChatModel, messageText, tokenise } from './stub-chat-model.js';
 import { createChatModel } from './llm.module.js';
-import { testConfig } from '../../test/helpers.js';
+import { testConfig, testPlugins } from '../../test/helpers.js';
 
 const searchTool = tool(async () => 'result', {
   name: 'search_code',
@@ -111,24 +111,44 @@ describe('StubChatModel', () => {
 });
 
 describe('createChatModel', () => {
-  it('returns the offline stub when no provider is configured', () => {
-    expect(createChatModel(testConfig())._llmType()).toBe('stub-chat-model');
+  it('returns the offline stub when no provider is configured', async () => {
+    const model = await createChatModel(await testPlugins(), testConfig());
+
+    expect(model._llmType()).toBe('stub-chat-model');
   });
 
-  it('refuses to build an OpenAI model without a key rather than failing later', () => {
+  it('refuses to build an OpenAI model without a key rather than failing later', async () => {
     const config = testConfig();
-    expect(() =>
-      createChatModel({ ...config, llm: { ...config.llm, provider: 'openai', apiKey: undefined } }),
-    ).toThrow(/OPENAI_API_KEY/);
+
+    await expect(
+      createChatModel(await testPlugins(), {
+        ...config,
+        llm: { ...config.llm, provider: 'openai', apiKey: undefined },
+      }),
+    ).rejects.toThrow(/OPENAI_API_KEY/);
   });
 
-  it('builds an OpenAI model when a key is present', () => {
+  it('builds an OpenAI model when a key is present', async () => {
     const config = testConfig();
-    const model = createChatModel({
+
+    const model = await createChatModel(await testPlugins(), {
       ...config,
       llm: { ...config.llm, provider: 'openai', apiKey: 'sk-test' },
     });
 
     expect(model._llmType()).not.toBe('stub-chat-model');
+  });
+
+  it('names the providers that exist when the configured one does not', async () => {
+    // `LLM_PROVIDER` is a registry kind now, so a typo is a startup error rather
+    // than a silent fall back to the stub answering with no model at all.
+    const config = testConfig();
+
+    await expect(
+      createChatModel(await testPlugins(), {
+        ...config,
+        llm: { ...config.llm, provider: 'oepnai' },
+      }),
+    ).rejects.toThrow(/"oepnai".*openai, stub/s);
   });
 });

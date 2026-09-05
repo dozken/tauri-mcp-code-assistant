@@ -116,8 +116,8 @@ describe('http client', () => {
     await expect(fetchStatus()).rejects.toBeInstanceOf(ContractError);
   });
 
-  it('rejects a status payload with an unknown store kind', async () => {
-    fetchMock.mockResolvedValue(respond({ ...status, vectorStore: 'pinecone' }));
+  it('rejects a status payload whose store has no name at all', async () => {
+    fetchMock.mockResolvedValue(respond({ ...status, vectorStore: '' }));
 
     await expect(fetchStatus()).rejects.toBeInstanceOf(ContractError);
   });
@@ -160,9 +160,7 @@ describe('http client details the UI branches on', () => {
   });
 
   it('joins several contract violations rather than reporting only the first', async () => {
-    fetchMock.mockResolvedValue(
-      respond({ ...status, totalChunks: 'lots', vectorStore: 'pinecone' }),
-    );
+    fetchMock.mockResolvedValue(respond({ ...status, totalChunks: 'lots', vectorStore: '' }));
 
     await expect(fetchStatus()).rejects.toMatchObject({
       name: 'ContractError',

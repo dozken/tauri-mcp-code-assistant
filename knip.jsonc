@@ -7,12 +7,21 @@
       "includeEntryExports": false,
     },
     "backend": {
-      "entry": ["src/**/*.spec.ts", "test/**/*.spec.ts"],
+      "entry": [
+        "src/**/*.spec.ts",
+        "test/**/*.spec.ts",
+        // The plugin-authoring surface. Its consumers are out-of-repo packages, so
+        // "nothing here imports it" is what a working extension point looks like.
+        "src/**/*.plugin.ts",
+      ],
       // Referenced by stryker.config.json, which Knip does not read.
       "ignore": ["vitest.mutation.config.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
       // Loaded by pino as a worker target string, so no import exists to find.
       "ignoreDependencies": ["pino-pretty"],
+      // Same reasoning as the contracts barrel: a plugin file's exports are the
+      // API an out-of-repo plugin compiles against, so "unused here" is expected.
+      "includeEntryExports": false,
     },
     "app": {
       "entry": ["src/**/*.test.{ts,tsx}", "e2e/**/*.spec.ts"],

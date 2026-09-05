@@ -26,7 +26,8 @@ export interface SearchOptions {
 }
 
 export interface VectorStore {
-  readonly kind: 'chroma' | 'memory';
+  /** The registry kind this store was created under, for `/status` and logs. */
+  readonly kind: string;
   upsert(chunks: readonly CodeChunk[]): Promise<void>;
   search(query: string, options?: SearchOptions): Promise<ScoredChunk[]>;
   /** Removes every chunk previously indexed under `root`. */

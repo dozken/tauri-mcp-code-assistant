@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-type LlmProvider = 'stub' | 'openai';
 type EmbeddingsProvider = 'hashing' | 'openai';
 
 export interface AppConfig {
@@ -15,13 +14,31 @@ export interface AppConfig {
     /** When false the app never contacts Chroma and uses the in-memory store. */
     readonly enabled: boolean;
   };
+  readonly vector: {
+    /**
+     * `auto` keeps the historical behaviour — Chroma when enabled, falling back to
+     * memory when no server answers. Any other value names a registry kind and is
+     * used as given, with no fallback: someone who asked for `qdrant` wants to know
+     * it is missing, not to be quietly downgraded.
+     */
+    readonly store: string;
+  };
+  readonly plugins: {
+    /** Module specifiers to load at startup. Runs third-party code in this process. */
+    readonly load: readonly string[];
+  };
   readonly embeddings: {
     readonly provider: EmbeddingsProvider;
     readonly dimensions: number;
     readonly model: string;
   };
   readonly llm: {
-    readonly provider: LlmProvider;
+    /**
+     * A registry kind, not a fixed union: `stub` and `openai` ship with the app,
+     * and a plugin can register another. An unknown name fails at startup with
+     * the registered kinds listed, which is a better error than a type would give.
+     */
+    readonly provider: string;
     readonly model: string;
     readonly apiKey?: string;
     readonly baseUrl?: string;
@@ -117,6 +134,13 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       collection: env.CHROMA_COLLECTION ?? 'code-companion',
       enabled: bool(env.CHROMA_ENABLED, true),
     },
+    vector: { store: text(env.VECTOR_STORE) ?? 'auto' },
+    plugins: {
+      load: (text(env.PLUGINS) ?? '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ''),
+    },
     embeddings: {
       // Without an API key we fall back to deterministic local embeddings so the
       // whole retrieval pipeline still works offline.
@@ -129,11 +153,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       model: env.EMBEDDINGS_MODEL ?? 'text-embedding-3-small',
     },
     llm: {
-      provider: oneOf<LlmProvider>(
-        env.LLM_PROVIDER,
-        ['stub', 'openai'],
-        apiKey ? 'openai' : 'stub',
-      ),
+      provider: text(env.LLM_PROVIDER) ?? (apiKey ? 'openai' : 'stub'),
       model: env.LLM_MODEL ?? 'gpt-4o-mini',
       apiKey,
       baseUrl: text(env.OPENAI_BASE_URL),

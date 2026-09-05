@@ -32,7 +32,12 @@ export const indexedRootSchema = z.object({
   stale: z.boolean(),
 });
 
-export const vectorStoreKindSchema = z.enum(['chroma', 'memory']);
+/**
+ * A name, not a fixed set. `chroma` and `memory` ship with the app; a plugin can
+ * register another, and the UI has to be able to show whatever is actually
+ * running rather than the two the contract happened to know about.
+ */
+export const vectorStoreKindSchema = z.string().min(1);
 export const metadataStoreKindSchema = z.enum(['sqlite', 'memory']);
 
 export const indexStatusSchema = z.object({

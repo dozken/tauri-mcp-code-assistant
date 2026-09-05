@@ -16,12 +16,21 @@ import { MemoryMetadataStore } from '../common/metadata-store.js';
 import { HashingEmbeddings } from '../vector/embeddings.js';
 import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
-import { recordingLogger, silentLogger, testConfig } from '../../test/helpers.js';
+import { recordingLogger, silentLogger, testConfig, testPlugins } from '../../test/helpers.js';
 import { IndexingService } from './indexing.service.js';
 
-/** The in-memory store satisfies the same contract the service depends on. */
-const asVectorStoreService = (store: MemoryVectorStore): VectorStoreService =>
-  store as unknown as VectorStoreService;
+/**
+ * The in-memory store satisfies the same contract the service depends on, plus
+ * the one thing only the Nest facade has: the lazily resolved kind.
+ */
+const asVectorStoreService = (
+  store: MemoryVectorStore,
+  kind: string = store.kind,
+): VectorStoreService =>
+  Object.assign(store, {
+    kind,
+    resolvedStoreKind: () => Promise.resolve(kind),
+  }) as unknown as VectorStoreService;
 
 const settle = async (service: IndexingService): Promise<void> => {
   for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -52,6 +61,7 @@ describe('IndexingService', () => {
     const instance = new IndexingService(
       config,
       metadata,
+      await testPlugins(),
       asVectorStoreService(store),
       silentLogger(),
     );
@@ -265,6 +275,30 @@ describe('IndexingService', () => {
       await rm(second, { recursive: true, force: true });
     });
 
+    it('names the real store on the very first status call, not the lazy default', async () => {
+      // Resolution is lazy, so `kind` answers `memory` until something forces it.
+      // Reading it too early told every user on every launch that their index was
+      // in memory and would be lost — with Chroma sitting right there behind it.
+      const late = new MemoryVectorStore(new HashingEmbeddings({ dimensions: 64 }));
+      const service = new IndexingService(
+        testConfig({
+          indexing: {
+            chunkSize: 400,
+            chunkOverlap: 50,
+            maxFileBytes: 64 * 1024,
+            concurrency: 4,
+            allowedRoots: [root],
+          },
+        }),
+        metadata,
+        await testPlugins(),
+        asVectorStoreService(late, 'pretend-persistent'),
+        silentLogger(),
+      );
+
+      expect((await service.getStatus()).vectorStore).toBe('pretend-persistent');
+    });
+
     it('reports zero chunks rather than failing status when the store cannot be counted', async () => {
       // `/status` drives the whole sidebar. A Chroma hiccup must degrade one
       // number, not blank the folder list and the progress bar with it.
@@ -286,7 +320,13 @@ describe('IndexingService', () => {
           allowedRoots: [root],
         },
       });
-      const logged = new IndexingService(config, metadata, asVectorStoreService(store), logger);
+      const logged = new IndexingService(
+        config,
+        metadata,
+        await testPlugins(),
+        asVectorStoreService(store),
+        logger,
+      );
       await logged.onModuleInit();
 
       await logged.startIndexing(root);
@@ -778,6 +818,7 @@ describe('IndexingService', () => {
           },
         }),
         metadata,
+        await testPlugins(),
         asVectorStoreService(restartedStore),
         silentLogger(),
       );

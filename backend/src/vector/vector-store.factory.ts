@@ -1,9 +1,8 @@
 import type { Embeddings } from '@langchain/core/embeddings';
 import { OpenAIEmbeddings } from '@langchain/openai';
 import type { AppConfig } from '../config/configuration.js';
+import type { Context } from '../plugins/context.js';
 import { HashingEmbeddings } from './embeddings.js';
-import { ChromaVectorStore } from './chroma-vector-store.js';
-import { MemoryVectorStore } from './memory-vector-store.js';
 import type { VectorStore } from './vector-store.types.js';
 
 export const createEmbeddings = (config: AppConfig): Embeddings => {
@@ -26,26 +25,32 @@ export const createEmbeddings = (config: AppConfig): Embeddings => {
  * `npm run dev` works with nothing else installed. The choice is made once at
  * startup rather than per call — silently flip-flopping between two stores with
  * different contents would be worse than a clear, logged decision.
+ *
+ * `VECTOR_STORE` names a registry kind instead, and then there is no fallback:
+ * someone who asked for `qdrant` wants to hear that it is missing, not to be
+ * quietly downgraded to a store that answers every query with nothing.
  */
-export const createVectorStore = async (
+export const selectVectorStore = async (
+  plugins: Context,
   config: AppConfig,
   embeddings: Embeddings,
   onFallback?: (reason: string) => void,
 ): Promise<VectorStore> => {
-  if (!config.chroma.enabled) {
-    return new MemoryVectorStore(embeddings);
+  const registry = plugins.require('vectorStores');
+  const options = { config, embeddings };
+
+  if (config.vector.store !== 'auto') {
+    return registry.create(config.vector.store, options);
   }
 
-  const chroma = new ChromaVectorStore(embeddings, {
-    url: config.chroma.url,
-    collection: config.chroma.collection,
-  });
+  if (!config.chroma.enabled) {
+    return registry.create('memory', options);
+  }
 
   try {
-    await chroma.healthCheck();
-    return chroma;
+    return await registry.create('chroma', options);
   } catch (error) {
     onFallback?.(error instanceof Error ? error.message : String(error));
-    return new MemoryVectorStore(embeddings);
+    return registry.create('memory', options);
   }
 };

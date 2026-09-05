@@ -3,7 +3,9 @@ import { PinoLogger, InjectPinoLogger } from 'nestjs-pino';
 import type { Embeddings } from '@langchain/core/embeddings';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { EMBEDDINGS } from './vector.tokens.js';
-import { createVectorStore } from './vector-store.factory.js';
+import { PLUGIN_CONTEXT } from '../extensions/extensions.module.js';
+import type { Context } from '../plugins/context.js';
+import { selectVectorStore } from './vector-store.factory.js';
 import type { CodeChunk, ScoredChunk, SearchOptions, VectorStore } from './vector-store.types.js';
 
 /**
@@ -13,21 +15,35 @@ import type { CodeChunk, ScoredChunk, SearchOptions, VectorStore } from './vecto
 @Injectable()
 export class VectorStoreService implements VectorStore {
   private store?: Promise<VectorStore>;
-  private resolvedKind: 'chroma' | 'memory' = 'memory';
+  private resolvedKind = 'memory';
 
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(EMBEDDINGS) private readonly embeddings: Embeddings,
+    @Inject(PLUGIN_CONTEXT) private readonly plugins: Context,
     @InjectPinoLogger(VectorStoreService.name) private readonly logger: PinoLogger,
   ) {}
 
-  get kind(): 'chroma' | 'memory' {
+  get kind(): string {
     // Only meaningful after the first call; `memory` is the safe assumption.
     return this.resolvedKind;
   }
 
+  /**
+   * The kind actually in use, waiting for resolution if it has not happened yet.
+   *
+   * Resolution is lazy so a slow Chroma cannot block boot, which means the plain
+   * `kind` getter answers `memory` until something forces it. Reading that on the
+   * first `/status` told every user their index was in memory and would be lost
+   * on restart, on every launch, whatever was really backing it.
+   */
+  async resolvedStoreKind(): Promise<string> {
+    await this.resolve();
+    return this.resolvedKind;
+  }
+
   private resolve(): Promise<VectorStore> {
-    this.store ??= createVectorStore(this.config, this.embeddings, (reason) => {
+    this.store ??= selectVectorStore(this.plugins, this.config, this.embeddings, (reason) => {
       this.logger.warn(
         { chromaUrl: this.config.chroma.url, reason },
         'Chroma unreachable, falling back to the in-memory vector store',
