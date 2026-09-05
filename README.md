@@ -110,7 +110,8 @@ Copy `.env.example` for the full list of settings.
 │   │   ├── api/                    # http.ts, socket.ts, tauri.ts (guarded IPC)
 │   │   ├── components/             # Sidebar, ChatPanel, MessageBubble
 │   │   ├── hooks/useBackend.ts     # socket ⇄ store wiring, send/index actions
-│   │   ├── markdown/               # the rendered subset, parsed to data not HTML
+│   │   ├── markdown/               # the rendered subset and the highlighter, both
+│   │   │                           #   parsed to data rather than to HTML
 │   │   ├── store/appStore.ts       # Zustand: pure state + synchronous mutators
 │   │   ├── theme/                  # both palettes + the OS-preference provider
 │   │   └── types.ts                # UI-only types (everything else is a contract)
@@ -309,6 +310,8 @@ rules that keep finding real bugs, are in [docs/testing.md](docs/testing.md).
 | `app/src/hooks/useBackend.test.ts`         | Socket wiring, payload validation, listener teardown, send/index actions              |
 | `app/src/components/*.test.tsx`            | Composer behaviour, folder list, progress and cancel                                  |
 | `app/src/markdown/parse.test.ts`           | The Markdown subset: nesting, snake_case and dunder safety, streaming fences          |
+| `app/src/markdown/highlight.test.ts`       | The highlighter, fuzzed: no input ever loses, gains or reorders a character           |
+| `app/src/{theme,markdown}/*.test.ts`       | Every palette and syntax colour measured against its own surface at WCAG AA           |
 | `app/e2e/chat.spec.ts`                     | Ask → answer, index → cite, and a rejected path, in a real browser                    |
 
 Playwright drives the browser build of the same React app (Tauri's webview is not

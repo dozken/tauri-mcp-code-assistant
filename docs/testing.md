@@ -63,6 +63,12 @@ them. It is not the coverage-analysis setting — `perTest`, `all` and `off` all
 byte-identical result, which is worth knowing before someone spends an afternoon on it, as
 one of us already has.
 
+A third kind is easier to explain. `highlight.ts` builds its grammar table at module load,
+and the mutant that empties `forEach`'s callback makes `Object.fromEntries` throw before a
+single test runs. Injected, the file reports "no tests" and every one of its 53 tests errors —
+about as killed as a mutant can be. The report calls it survived, because no test completed to
+be counted.
+
 So: **triage a survivor by injecting it, not by trusting the row.** Assert the injection
 actually matched the source first — a `replace` that silently finds nothing produces a
 passing suite that looks exactly like "the mutant survived", which is how the wrong
@@ -101,12 +107,31 @@ another source, and the symlink one is what stops a link to `~/.ssh` being walke
 entry arrives from `stat` rather than `lstat`. Deleting them to gain two points of mutation
 score would trade a security guard for a number.
 
+#### Equivalent arithmetic in the highlighter
+
+`highlight.ts` scans a string one character at a time, and three of its bounds cannot be
+killed because they cannot matter:
+
+- `while (cursor < code.length)` in the string and number scanners. One extra pass reads a
+  character that is not there, `charAt` hands back `''`, and every branch that follows
+  rejects it — so `<=` behaves identically.
+- `while (end < code.length && isIdentifierPart(...))`. The bound is belt and braces:
+  `isIdentifierPart('')` already stops the walk.
+- The `^` in the hex-prefix guard. It only matters for a numeric literal that contains `0x`
+  after its first character, which no language in the table has.
+
+The past-the-end read itself is spelled once, in `charAt`, so the disable that covers it is
+one line rather than nine. That was worth doing for the code before it was worth doing for
+the score: nine copies of the same unreachable fallback is nine chances to write a different
+one.
+
 ## Where each kind of test belongs
 
 | Concern                          | Lives in                                     | Why not elsewhere                                                |
 | -------------------------------- | -------------------------------------------- | ---------------------------------------------------------------- |
 | Pure logic, one unit             | `*.spec.ts` / `*.test.ts` next to the source | Fast, and the failure names the function                         |
 | Contrast and palette             | `app/src/theme/theme.test.ts`                | A browser is the slowest place to learn a hex value is too light |
+| Syntax colours                   | `app/src/markdown/syntax.test.ts`            | Same measurement, against the code block's own surface           |
 | Rendered accessibility           | `app/e2e/a11y.spec.ts`                       | Contrast and computed names only exist once something renders    |
 | HTTP and socket contracts        | `backend/test/api.e2e.spec.ts`               | Needs the real Nest container, guards and pipes                  |
 | Anything involving a real folder | `backend/src/indexing/*.spec.ts`             | The indexer's bugs live in the filesystem, not in mocks          |

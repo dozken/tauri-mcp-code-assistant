@@ -45,8 +45,10 @@ describe('MessageBubble', () => {
     renderBubble(message({ content: 'Found it:\n```ts\nconst a = 1;\n```' }));
 
     expect(screen.getByText('Found it:')).toBeInTheDocument();
-    const code = screen.getByText('const a = 1;');
-    expect(code.tagName).toBe('CODE');
+    // Highlighting splits the line into spans, so the assertion is on the block.
+    const block = screen.getByRole('region', { name: 'ts code snippet' });
+    expect(block).toHaveTextContent('const a = 1;');
+    expect(block.querySelector('code')).not.toBeNull();
   });
 
   it('shows a thinking placeholder only while empty and streaming', () => {

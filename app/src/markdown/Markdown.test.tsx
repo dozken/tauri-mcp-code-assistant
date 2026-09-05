@@ -48,6 +48,31 @@ describe('Markdown', () => {
     expect(block).toHaveTextContent('const a = 1;');
   });
 
+  it('colours a snippet without changing a character of it', () => {
+    // `parseBlocks` hands back the fence body without its trailing newline.
+    const source = 'const answer = 42; // why';
+    const { container } = show(`\`\`\`ts\n${source}\n\`\`\``);
+
+    const code = container.querySelector('pre code');
+    // The rendered text is the source: highlighting adds spans, never content.
+    expect(code?.textContent).toBe(source);
+    expect([...(code?.querySelectorAll('span') ?? [])].map((span) => span.className)).toEqual([
+      'tok-keyword',
+      'tok-punctuation',
+      'tok-number',
+      'tok-punctuation',
+      'tok-comment',
+    ]);
+  });
+
+  it('leaves a language it does not know uncoloured rather than guessing', () => {
+    const { container } = show('```brainfuck\n+[----->+++<]>+.\n```');
+
+    const code = container.querySelector('pre code');
+    expect(code?.querySelectorAll('span')).toHaveLength(0);
+    expect(code?.textContent).toBe('+[----->+++<]>+.');
+  });
+
   it('still labels a code block that carries no language', () => {
     show('```\nplain\n```');
 

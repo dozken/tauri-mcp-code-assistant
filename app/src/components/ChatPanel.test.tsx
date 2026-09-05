@@ -83,7 +83,11 @@ describe('ChatPanel', () => {
 
     await waitFor(() => expect(screen.getByTestId('message-assistant')).toBeInTheDocument());
     expect(screen.getByText(/Found it in/)).toBeInTheDocument();
-    expect(screen.getByText(/export const authenticate/)).toBeInTheDocument();
+    // The snippet is syntax-highlighted, so its text is spread across spans and
+    // only the block as a whole holds the line.
+    expect(screen.getByRole('region', { name: 'ts code snippet' })).toHaveTextContent(
+      'export const authenticate = () => true;',
+    );
     expect(screen.getByText('search_code · 7ms')).toBeInTheDocument();
   });
 
