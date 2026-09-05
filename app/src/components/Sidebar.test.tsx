@@ -190,6 +190,27 @@ describe('Sidebar', () => {
     });
   });
 
+  it('says how many files it reused rather than re-embedded', () => {
+    act(() => {
+      useAppStore.setState({ activeJob: { ...activeJob, filesSkipped: 6 } });
+    });
+    renderSidebar();
+
+    expect(
+      within(screen.getByTestId('index-progress')).getByText(/20 chunks, 6 unchanged/),
+    ).toBeInTheDocument();
+  });
+
+  it('stays quiet about reuse on a first index, which reuses nothing', () => {
+    // ", 0 unchanged" would be noise on the one line the user actually watches.
+    act(() => {
+      useAppStore.setState({ activeJob });
+    });
+    renderSidebar();
+
+    expect(within(screen.getByTestId('index-progress')).queryByText(/unchanged/)).toBeNull();
+  });
+
   it('reports a failed cancel rather than swallowing it', async () => {
     cancelIndexing.mockRejectedValue(new Error('backend gone'));
     act(() => {

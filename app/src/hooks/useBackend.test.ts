@@ -183,6 +183,35 @@ describe('useBackend', () => {
     expect(writes.length).toBeLessThan(200);
   });
 
+  it('keeps the text streamed before a failure, instead of dropping it', () => {
+    renderHook(() => useBackend());
+    act(() => {
+      useAppStore.getState().beginAssistantMessage();
+    });
+
+    // Raw, so the tokens are still buffered in the current frame when the error
+    // lands. `appendToken` ignores a message that is no longer streaming, so
+    // without a flush first the partial answer is lost the moment the turn fails
+    // — the user is left with an error and a blank bubble.
+    act(() => {
+      socket.receiveRaw(SOCKET_EVENTS.chatToken, {
+        conversationId: 'c',
+        type: 'token',
+        token: 'as far as I got',
+      });
+      socket.receiveRaw(SOCKET_EVENTS.chatError, {
+        conversationId: 'c',
+        type: 'error',
+        error: 'model exploded',
+      });
+    });
+
+    expect(useAppStore.getState().messages[0]).toMatchObject({
+      content: 'as far as I got',
+      error: 'model exploded',
+    });
+  });
+
   it('records a streamed error on the message', () => {
     renderHook(() => useBackend());
     act(() => {
