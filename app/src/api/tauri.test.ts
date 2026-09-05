@@ -52,6 +52,16 @@ describe('tauri bridge', () => {
       );
     });
 
+    it('titles the picker, so the OS dialog is not an unlabelled window', async () => {
+      open.mockResolvedValue('/home/dev/projects/api');
+
+      await pickFolder();
+
+      expect(open).toHaveBeenCalledWith(
+        expect.objectContaining({ title: expect.stringMatching(/\S/) as unknown as string }),
+      );
+    });
+
     it('maps a cancelled picker to null, not undefined', async () => {
       open.mockResolvedValue(null);
 

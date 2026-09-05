@@ -44,6 +44,28 @@ describe('AppThemeProvider', () => {
     expect(screen.getByTestId('mode')).toHaveTextContent(mode);
   });
 
+  it('rebuilds the theme when the preference changes, rather than caching the first one', () => {
+    // An empty dependency list still passes both cases above, because each starts
+    // a fresh render. It only shows up when the OS flips while the app is open,
+    // which is exactly when a desktop user notices.
+    preferDark(false);
+    const { rerender } = render(
+      <AppThemeProvider>
+        <ShowMode />
+      </AppThemeProvider>,
+    );
+    expect(screen.getByTestId('mode')).toHaveTextContent('light');
+
+    preferDark(true);
+    rerender(
+      <AppThemeProvider>
+        <ShowMode />
+      </AppThemeProvider>,
+    );
+
+    expect(screen.getByTestId('mode')).toHaveTextContent('dark');
+  });
+
   it('renders its children', () => {
     preferDark(true);
 

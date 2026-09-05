@@ -185,3 +185,117 @@ describe('initialState', () => {
     });
   });
 });
+
+describe('appStore internals the streaming path depends on', () => {
+  beforeEach(reset);
+
+  it('writes to the newest assistant message, not an earlier one', () => {
+    const store = useAppStore.getState();
+    store.addUserMessage('first');
+    store.beginAssistantMessage();
+    store.completeAssistantMessage('first answer');
+    store.addUserMessage('second');
+    store.beginAssistantMessage();
+
+    useAppStore.getState().appendToken('tokens for the second turn');
+
+    const messages = useAppStore.getState().messages;
+    expect(messages[1]?.content).toBe('first answer');
+    expect(messages.at(-1)?.content).toBe('tokens for the second turn');
+  });
+
+  it('ignores a stray token when no assistant turn is open', () => {
+    // A late token from a cancelled turn must not append itself to the transcript.
+    const store = useAppStore.getState();
+    store.addUserMessage('hello');
+
+    useAppStore.getState().appendToken('late');
+
+    expect(useAppStore.getState().messages.map((entry) => entry.content)).toEqual(['hello']);
+  });
+
+  it('still produces unique ids where randomUUID is unavailable', () => {
+    // Not a secure context — a plain http:// dev server, or an older webview —
+    // and the DOM types insist `crypto.randomUUID` is always there. Without the
+    // fallback every message shares the key `undefined` and React reuses nodes.
+    const original = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+
+    try {
+      const store = useAppStore.getState();
+      store.addUserMessage('one');
+      store.addUserMessage('two');
+
+      const ids = useAppStore.getState().messages.map((entry) => entry.id);
+      expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+      expect(new Set(ids).size).toBe(ids.length);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true });
+    }
+  });
+
+  it('drops a selected folder that the backend no longer reports', () => {
+    useAppStore.setState({ selectedRoot: '/gone' });
+
+    useAppStore.getState().applyStatus({
+      activeJob: null,
+      roots: [
+        {
+          path: '/still-here',
+          fileCount: 1,
+          chunkCount: 1,
+          lastIndexedAt: '2026-01-01T00:00:00.000Z',
+          stale: false,
+        },
+      ],
+      vectorStore: 'memory',
+      metadataStore: 'sqlite',
+      totalChunks: 1,
+    });
+
+    // Left in place, every search would filter to a folder that is not indexed.
+    expect(useAppStore.getState().selectedRoot).toBeUndefined();
+  });
+
+  it('keeps a selected folder that is still reported', () => {
+    useAppStore.setState({ selectedRoot: '/kept' });
+
+    useAppStore.getState().applyStatus({
+      activeJob: null,
+      roots: [
+        {
+          path: '/kept',
+          fileCount: 1,
+          chunkCount: 1,
+          lastIndexedAt: '2026-01-01T00:00:00.000Z',
+          stale: false,
+        },
+      ],
+      vectorStore: 'memory',
+      metadataStore: 'sqlite',
+      totalChunks: 1,
+    });
+
+    expect(useAppStore.getState().selectedRoot).toBe('/kept');
+  });
+
+  it.each([
+    ['failed', 'disk full'],
+    ['completed', undefined],
+    ['cancelled', undefined],
+  ])('surfaces the error of a %s job as %p', (state, expected) => {
+    useAppStore.getState().applyProgress({
+      jobId: 'j1',
+      root: '/repo',
+      state: state as 'failed' | 'completed' | 'cancelled',
+      filesDiscovered: 1,
+      filesIndexed: 1,
+      filesSkipped: 0,
+      chunksIndexed: 1,
+      percent: 100,
+      error: 'disk full',
+    });
+
+    expect(useAppStore.getState().error).toBe(expected);
+  });
+});

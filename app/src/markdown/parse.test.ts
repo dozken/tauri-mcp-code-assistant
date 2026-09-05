@@ -100,6 +100,117 @@ describe('parseInline', () => {
   });
 });
 
+describe('block markers, at their edges', () => {
+  const first = (input: string): Block | undefined => parseBlocks(input)[0];
+
+  it.each([1, 2, 3, 4, 5, 6])('accepts %i hashes as a heading', (level) => {
+    expect(first(`${'#'.repeat(level)} Title`)).toMatchObject({ kind: 'heading', level });
+  });
+
+  it('stops at six, because there is no h7 to render it as', () => {
+    expect(first('####### Title')).toMatchObject({ kind: 'paragraph' });
+  });
+
+  it('accepts a tab after the hashes, not only a space', () => {
+    // Models indent with tabs often enough that treating one as prose is visible.
+    expect(first('#\tTitle')).toMatchObject({ kind: 'heading', level: 1 });
+  });
+
+  it.each(['0. zero', '9. nine'])('treats %s as an ordered item', (line) => {
+    expect(first(line)).toMatchObject({ kind: 'list', ordered: true });
+  });
+
+  it.each(['1) parenthesis', '1. period'])('accepts %s as the delimiter', (line) => {
+    expect(first(line)).toMatchObject({ kind: 'list', ordered: true });
+  });
+
+  it.each(['1: colon', '1- dash', '1.no space'])('rejects %s as a list', (line) => {
+    expect(first(line)).toMatchObject({ kind: 'paragraph' });
+  });
+
+  it('gives up on a number too long to be a list marker', () => {
+    // Nine digits is already absurd for a list; past that it is prose that
+    // happens to start with a number, like a phone number or an ID.
+    expect(first('1234567890. not a list')).toMatchObject({ kind: 'paragraph' });
+    expect(first('123456789. still a list')).toMatchObject({ kind: 'list' });
+  });
+
+  it.each(['- ', '1. ', '-   '])('does not open a list for the empty item %p', (line) => {
+    expect(first(line)).toMatchObject({ kind: 'paragraph' });
+  });
+
+  it('trims the item text, so trailing spaces do not reach the DOM', () => {
+    expect(first('-   spaced out   ')).toMatchObject({
+      kind: 'list',
+      items: [[{ kind: 'text', value: 'spaced out' }]],
+    });
+  });
+
+  it('treats a whitespace-only line as a blank, so it separates paragraphs', () => {
+    expect(parseBlocks('one\n   \ntwo')).toHaveLength(2);
+  });
+
+  it.each(['text ```', '``` trailing text', '`` too few'])(
+    'does not open a fence for %p',
+    (line) => {
+      expect(first(`${line}\nbody`)).toMatchObject({ kind: 'paragraph' });
+    },
+  );
+
+  it('closes a fence only on a bare marker, never on one carrying a language', () => {
+    // ```ts inside a block is content — a nested example, which models emit
+    // constantly — and closing on it truncates the answer mid-snippet.
+    const blocks = parseBlocks('```\ninner\n```ts\nmore\n```');
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ kind: 'codeBlock', content: 'inner\n```ts\nmore' });
+  });
+
+  it('joins fenced lines with newlines rather than running them together', () => {
+    expect(first('```\na\nb\n```')).toMatchObject({ content: 'a\nb' });
+  });
+});
+
+describe('inline scanning, at its edges', () => {
+  it('trims the inside of a code span, the way CommonMark does', () => {
+    expect(parseInline('` padded `')).toEqual([{ kind: 'code', value: 'padded' }]);
+  });
+
+  it('emits no empty text node around a span that fills the line', () => {
+    // An empty text node renders as nothing but breaks `toEqual` comparisons and
+    // multiplies the DOM on a long streamed answer.
+    expect(parseInline('`only`')).toEqual([{ kind: 'code', value: 'only' }]);
+    expect(parseInline('**only**')).toEqual([
+      { kind: 'strong', children: [{ kind: 'text', value: 'only' }] },
+    ]);
+  });
+
+  it('keeps a code span whole inside strong, not merely inside emphasis', () => {
+    expect(parseInline('**a `b` c**')).toEqual([
+      {
+        kind: 'strong',
+        children: [
+          { kind: 'text', value: 'a ' },
+          { kind: 'code', value: 'b' },
+          { kind: 'text', value: ' c' },
+        ],
+      },
+    ]);
+  });
+
+  it('leaves an unmatched backtick as literal text', () => {
+    expect(parseInline('a ` b')).toEqual([{ kind: 'text', value: 'a ` b' }]);
+  });
+
+  it('terminates on input whose markers all match emptily', () => {
+    // The zero-length-match guard: without it the scanner never advances and the
+    // whole app hangs on one malformed line.
+    expect(() => parseInline('****')).not.toThrow();
+    expect(() => parseInline('``````')).not.toThrow();
+    expect(() => parseInline('__')).not.toThrow();
+  });
+});
+
 describe('parseBlocks', () => {
   const kinds = (blocks: Block[]) => blocks.map((block) => block.kind);
 
