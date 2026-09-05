@@ -54,10 +54,20 @@ module.exports = {
       name: 'shared-layers-stay-shared',
       severity: 'error',
       comment:
-        'common/, config/ and security/ are imported by every feature; importing a ' +
-        'feature back would make them un-reusable and create a cycle.',
-      from: { path: '^backend/src/(common|config|security)/' },
+        'common/, config/, security/ and plugins/ are imported by every feature; ' +
+        'importing a feature back would make them un-reusable and create a cycle.',
+      from: { path: '^backend/src/(common|config|security|plugins)/' },
       to: { path: '^backend/src/(chat|indexing|tools|vector|mcp|llm|events)/' },
+    },
+    {
+      name: 'plugin-runtime-knows-no-plugins',
+      severity: 'error',
+      comment:
+        'plugins/ is the runtime, not the catalogue. It must not import a single ' +
+        'thing the app happens to plug into it - the moment it does, the extension ' +
+        'points stop being replaceable and third-party plugins become second class.',
+      from: { path: '^backend/src/plugins/', pathNot: '[.]spec[.]ts$' },
+      to: { path: '^backend/src/(?!plugins/)' },
     },
     {
       name: 'security-depends-on-nothing-local',
