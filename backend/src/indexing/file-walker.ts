@@ -9,6 +9,12 @@ export interface WalkedFile {
   /** POSIX-style path relative to the indexed root. */
   readonly relativePath: string;
   readonly size: number;
+  /**
+   * Carried out of the `stat` the walk already does. The incremental index needs
+   * it for every file, and re-stating there would double the syscalls on exactly
+   * the path that exists to avoid work.
+   */
+  readonly mtimeMs: number;
 }
 
 export interface WalkOptions {
@@ -143,10 +149,13 @@ const shouldConsiderFile = (
   !isSensitivePath(relativePath);
 
 /** `undefined` when the file is unreadable or outside the size band. */
-const measure = async (absolutePath: string, maxFileBytes: number): Promise<number | undefined> => {
+const measure = async (
+  absolutePath: string,
+  maxFileBytes: number,
+): Promise<{ size: number; mtimeMs: number } | undefined> => {
   try {
-    const { size } = await stat(absolutePath);
-    return size > 0 && size <= maxFileBytes ? size : undefined;
+    const { size, mtimeMs } = await stat(absolutePath);
+    return size > 0 && size <= maxFileBytes ? { size, mtimeMs } : undefined;
   } catch {
     return undefined;
   }
@@ -211,9 +220,13 @@ export async function* walkFiles(root: string, options: WalkOptions): AsyncGener
       if (verdict.action === 'descend') queue.push(verdict.absolutePath);
       if (verdict.action !== 'consider') continue;
 
-      const size = await measure(verdict.absolutePath, options.maxFileBytes);
-      if (size !== undefined) {
-        yield { absolutePath: verdict.absolutePath, relativePath: verdict.relativePath, size };
+      const measured = await measure(verdict.absolutePath, options.maxFileBytes);
+      if (measured !== undefined) {
+        yield {
+          absolutePath: verdict.absolutePath,
+          relativePath: verdict.relativePath,
+          ...measured,
+        };
       }
     }
   }

@@ -59,10 +59,8 @@ const isTimeout = (signal: AbortSignal): boolean =>
  * which is the most that can be done from this side. The listener is removed
  * once the work settles so a turn full of tool calls does not accumulate them.
  */
-const raceAbort = async <T>(work: Promise<T>, signal?: AbortSignal): Promise<T> => {
-  if (signal === undefined) return work;
-
-  return new Promise<T>((resolve, reject) => {
+const raceAbort = async <T>(work: Promise<T>, signal: AbortSignal): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
     const onAbort = (): void => {
       reject(signal.reason as Error);
     };
@@ -73,7 +71,6 @@ const raceAbort = async <T>(work: Promise<T>, signal?: AbortSignal): Promise<T> 
       signal.removeEventListener('abort', onAbort);
     });
   });
-};
 
 /** Either the bare model or the same model with tools bound; both stream chunks. */
 type ChatModelLike = Runnable<BaseLanguageModelInput, AIMessageChunk>;
@@ -255,7 +252,7 @@ export class ChatService {
     tools: ReadonlyMap<string, StructuredToolInterface>,
     calls: readonly { id?: string; name: string; args: Record<string, unknown> }[],
     messages: BaseMessage[],
-    signal?: AbortSignal,
+    signal: AbortSignal,
   ): AsyncGenerator<ToolInvocation> {
     for (const call of calls) {
       const invocation = await this.runTool(tools, call.name, call.args, signal);
@@ -308,7 +305,7 @@ export class ChatService {
     tools: ReadonlyMap<string, StructuredToolInterface>,
     name: string,
     args: Record<string, unknown>,
-    signal?: AbortSignal,
+    signal: AbortSignal,
   ): Promise<ToolInvocation> {
     const startedAt = Date.now();
     const tool = tools.get(name);
@@ -336,7 +333,7 @@ export class ChatService {
       // A deadline or a Stop is the turn ending, not this tool failing. Letting it
       // propagate reports one timeout instead of turning every remaining call in
       // the batch into its own "tool failed" observation.
-      if (signal?.aborted === true) throw error;
+      if (signal.aborted) throw error;
 
       // Otherwise: surfaced back to the model as an observation, so a failed tool
       // lets the agent recover rather than aborting the whole conversation.

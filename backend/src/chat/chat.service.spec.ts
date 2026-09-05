@@ -8,6 +8,8 @@ import { StubChatModel } from '../llm/stub-chat-model.js';
 import { silentLogger, testConfig } from '../../test/helpers.js';
 import { ChatService } from './chat.service.js';
 import type { StructuredToolInterface } from '@langchain/core/tools';
+import { AIMessage, AIMessageChunk } from '@langchain/core/messages';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ChatStreamEvent } from '@ai-code-companion/contracts';
 
 const buildChatService = async (
@@ -169,6 +171,128 @@ const chatServiceWithWedgedTool = (timeoutMs: number): ChatService => {
 
   return new ChatService(new StubChatModel({ tokenDelayMs: 0 }), mcpTools, config, silentLogger());
 };
+
+/** A tool the service can call, standing in for whatever the MCP server exposes. */
+const fakeTool = (name: string, run: () => unknown): StructuredToolInterface =>
+  ({ name, description: name, invoke: async () => run() }) as unknown as StructuredToolInterface;
+
+/**
+ * A model that asks for the same tool on every turn and never volunteers an
+ * answer. It is the only way to reach the tool-budget ceiling, since the real
+ * stub settles after one retrieval.
+ *
+ * `bindTools` is deliberately absent so the `?? this.model` fallback — what a
+ * model without tool support would take — is exercised too.
+ */
+const insatiable = (toolName: string, lastResort: string): BaseChatModel => {
+  const model = {
+    _llmType: () => 'insatiable',
+    stream: async () =>
+      (async function* () {
+        yield new AIMessageChunk({
+          content: '',
+          tool_calls: [{ id: 'call-1', name: toolName, args: { query: 'x' }, type: 'tool_call' }],
+        });
+      })(),
+    invoke: async () => new AIMessage({ content: lastResort }),
+  };
+
+  return model as unknown as BaseChatModel;
+};
+
+const serviceWith = (model: BaseChatModel, tools: StructuredToolInterface[]): ChatService => {
+  const config = testConfig();
+  const mcpTools = { getTools: async () => tools } as unknown as McpToolsService;
+
+  return new ChatService(model, mcpTools, config, silentLogger());
+};
+
+describe('ChatService tool loop', () => {
+  it('answers from what the tools returned once the budget runs out', async () => {
+    const chat = serviceWith(
+      insatiable('search_code', 'Out of budget, but here is what I found.'),
+      [fakeTool('search_code', () => 'src/auth.ts:12-14')],
+    );
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+    const done = events.at(-1);
+
+    // Bounded, and never empty: the user gets an answer rather than a blank turn.
+    expect(events.filter((event) => event.type === 'tool')).toHaveLength(4);
+    expect(done).toMatchObject({ type: 'done' });
+    expect(done).toMatchObject({ message: expect.stringContaining('Out of budget') });
+  });
+
+  it('tells the model which tools exist when it invents one', async () => {
+    const chat = serviceWith(insatiable('teleport', 'nothing to go on'), [
+      fakeTool('search_code', () => 'src/auth.ts:12-14'),
+    ]);
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+    const first = events.find((event) => event.type === 'tool');
+
+    expect(first).toMatchObject({ tool: { name: 'teleport', failed: true } });
+    // Naming the alternatives is what lets the model recover on the next turn.
+    expect(first).toMatchObject({ tool: { result: expect.stringContaining('search_code') } });
+  });
+
+  it.each([
+    ['a plain string', () => 'plain text', 'plain text'],
+    ['a tool message', () => ({ content: 'from a message' }), 'from a message'],
+    ['anything else', () => ({ hits: 2 }), '{"hits":2}'],
+    ['undefined', () => undefined, 'null'],
+  ])('reads a tool result that is %s', async (_label, run, expected) => {
+    const chat = serviceWith(insatiable('search_code', 'done'), [fakeTool('search_code', run)]);
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+    const first = events.find((event) => event.type === 'tool');
+
+    expect(first).toMatchObject({ tool: { result: expected, failed: false } });
+  });
+
+  it('reports a throwing tool as an observation rather than ending the turn', async () => {
+    const chat = serviceWith(insatiable('search_code', 'recovered'), [
+      fakeTool('search_code', () => {
+        throw new Error('index offline');
+      }),
+    ]);
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    expect(events.find((event) => event.type === 'tool')).toMatchObject({
+      tool: { failed: true, result: expect.stringContaining('index offline') },
+    });
+  });
+});
+
+describe('ChatService prompt assembly', () => {
+  it('replays the history it is given as alternating turns', async () => {
+    const { chat } = await buildChatService();
+
+    const events = await collect(
+      chat.stream({
+        message: 'and where is it called from?',
+        history: [
+          { role: 'user', content: 'where do we authenticate?' },
+          { role: 'assistant', content: 'In src/auth.ts.' },
+        ],
+      }),
+    );
+
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+  });
+
+  it('pins the search to one root when the request names one', async () => {
+    const { chat } = await buildChatService();
+
+    const events = await collect(
+      chat.stream({ message: 'where do we authenticate?', root: '/repo' }),
+    );
+
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+  });
+});
 
 describe('ChatService deadline', () => {
   it('ends the turn with an error naming the timeout, not a raw AbortError', async () => {

@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   ConflictException,
@@ -170,7 +170,11 @@ export class IndexingService implements OnModuleInit {
       // records then skips every file and leaves the index silently empty — a
       // folder reporting hundreds of indexed files and zero searchable chunks.
       const recorded = await this.metadata.listFiles(job.root);
-      const reusable = this.roots.get(job.root)?.stale === false;
+      // Records are the only thing that makes those chunks addressable file by
+      // file. With none — a first run, or a persist that failed and only warned —
+      // there is nothing to diff against, and re-embedding without them would
+      // strand the chunks of any file that shrank.
+      const reusable = this.roots.get(job.root)?.stale === false && recorded.length > 0;
       const previous = reusable
         ? new Map(recorded.map((record) => [record.path, record]))
         : new Map<string, IndexedFileRecord>();
@@ -284,7 +288,7 @@ export class IndexingService implements OnModuleInit {
     file: WalkedFile,
     previous: IndexedFileRecord | undefined,
   ): Promise<IndexedFileRecord> {
-    const { mtimeMs } = await stat(file.absolutePath);
+    const { mtimeMs } = file;
     if (previous?.size === file.size && previous.mtimeMs === mtimeMs) {
       job.filesSkipped += 1;
       job.chunksIndexed += previous.chunkCount;

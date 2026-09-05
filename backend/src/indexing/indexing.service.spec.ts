@@ -337,6 +337,28 @@ describe('IndexingService', () => {
       expect(Math.max(...events)).toBeGreaterThan(0);
     });
 
+    it('falls back to a wholesale re-index when the per-file state failed to persist', async () => {
+      // `upsertFiles` only warns on failure, so the root can be `stale: false`
+      // with no records behind it. Diffing against nothing there would re-embed
+      // every file without first dropping what it replaces, stranding the chunks
+      // of any file that shrank.
+      await writeFile(join(root, 'auth.ts'), `export const a = 1;\n${'// filler\n'.repeat(200)}`);
+      vi.spyOn(metadata, 'upsertFiles').mockRejectedValue(new Error('disk full'));
+
+      await service.startIndexing(root);
+      await settle(service);
+      const before = await service.getStatus();
+      expect(await metadata.listFiles(root)).toEqual([]);
+
+      await writeFile(join(root, 'auth.ts'), 'export const a = 1;\n');
+      await service.startIndexing(root);
+      await settle(service);
+
+      const after = await service.getStatus();
+      expect(after.totalChunks).toBeLessThan(before.totalChunks);
+      expect(after.totalChunks).toBe(after.roots[0]?.chunkCount);
+    });
+
     it('re-indexes from scratch after a restart lost the in-memory chunks', async () => {
       // The live failure this guards: per-file state survives in SQLite, the
       // chunks do not, and trusting the records skipped every file — leaving a
