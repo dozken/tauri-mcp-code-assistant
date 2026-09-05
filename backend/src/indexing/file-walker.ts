@@ -102,7 +102,12 @@ export const DEFAULT_EXTENSIONS: ReadonlySet<string> = new Set([
 ]);
 // Stryker restore all
 
-const toPosix = (value: string): string => (sep === '/' ? value : value.split(sep).join('/'));
+/**
+ * No `sep === '/'` shortcut: splitting on `/` and re-joining with `/` is already
+ * the identity, so the fast path only bought a branch that cannot run on a POSIX
+ * runner — untestable by construction, and worth less than the line it cost.
+ */
+const toPosix = (value: string): string => value.split(sep).join('/');
 
 /**
  * Extension of a filename, or the whole name when it has none — so `Dockerfile`
@@ -185,10 +190,19 @@ const classify = (
   entry: Dirent,
   classifier: Classifier,
 ): Verdict => {
+  // Stryker disable next-line all: `readdir` with file types reports a symlink as
+  // neither file nor directory, so the checks below already reject it and no test
+  // can tell this line apart. It stays because relying on that is a trap: the day
+  // an entry arrives from `stat` instead of `lstat`, this is the line that stops
+  // a link to ~/.ssh being walked.
   if (entry.isSymbolicLink()) return { action: 'skip' };
 
   const absolutePath = join(directory, entry.name);
   const relativePath = toPosix(relative(root, absolutePath));
+  // Stryker disable next-line all: unreachable while `directory` only ever comes
+  // from the queue below, which is seeded with `root` and grown with paths joined
+  // onto it — so `relative` cannot produce `''` or escape upwards. It is the
+  // assertion that keeps that invariant true if the queue ever gains another source.
   if (relativePath === '' || relativePath.startsWith('..')) return { action: 'skip' };
 
   if (entry.isDirectory()) {

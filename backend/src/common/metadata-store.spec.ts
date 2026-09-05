@@ -114,6 +114,18 @@ const behavesLikeAMetadataStore = (name: string, make: () => Promise<MetadataSto
         ]);
       });
 
+      it("leaves another root's files alone when one root is removed", async () => {
+        // Both stores iterate every file row to find the ones to drop; matching
+        // too loosely would silently un-index every other folder the user has.
+        await store.upsertFiles([file('/repo/a.ts'), file('/other/c.ts', '/other')]);
+
+        await store.removeRoot('/repo');
+
+        expect((await store.listFiles('/other')).map((entry) => entry.path)).toEqual([
+          '/other/c.ts',
+        ]);
+      });
+
       it("forgets a root's files when the root itself is removed", async () => {
         // Otherwise a re-added folder would be diffed against state for chunks that
         // no longer exist, and every file would look unchanged.

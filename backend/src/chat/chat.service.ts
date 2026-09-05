@@ -201,6 +201,7 @@ export class ChatService {
 
       yield { type: 'done', conversationId, message: answer, toolCalls };
     } catch (error) {
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.error({ err: error, conversationId }, 'Chat failed');
       yield { type: 'error', conversationId, error: this.describeFailure(error, deadline.signal) };
     } finally {
@@ -338,6 +339,7 @@ export class ChatService {
       // Otherwise: surfaced back to the model as an observation, so a failed tool
       // lets the agent recover rather than aborting the whole conversation.
       const reason = error instanceof Error ? error.message : String(error);
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.warn({ err: error, tool: name }, 'Tool call failed');
       return {
         name,

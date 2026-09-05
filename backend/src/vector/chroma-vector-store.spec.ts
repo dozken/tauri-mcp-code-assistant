@@ -210,6 +210,75 @@ describe('ChromaVectorStore', () => {
     expect(remove).toHaveBeenCalledWith({ where: { root: { $eq: '/repo' } } });
   });
 
+  it('deletes named files in batches, because `$in` with thousands of paths is rejected', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const store = makeStore({ delete: remove }, { batchSize: 2 });
+
+    await store.deleteByPaths(['/repo/a.ts', '/repo/b.ts', '/repo/c.ts']);
+
+    expect(
+      remove.mock.calls.map((call) => (call[0] as { where: Record<string, unknown> }).where),
+    ).toEqual([{ path: { $in: ['/repo/a.ts', '/repo/b.ts'] } }, { path: { $in: ['/repo/c.ts'] } }]);
+  });
+
+  it('does not touch the server for an empty path list, which would delete the lot', async () => {
+    // `delete({ where: { path: { $in: [] } } })` is not obviously a no-op server
+    // side, and this runs on every re-index that removed nothing.
+    const remove = vi.fn();
+    const store = makeStore({ delete: remove });
+
+    await store.deleteByPaths([]);
+
+    expect(remove).not.toHaveBeenCalled();
+    expect(chroma.getOrCreateCollection).not.toHaveBeenCalled();
+  });
+
+  it('asks the server for the fields it actually reads back', async () => {
+    // Dropping one of these silently empties `text`, `metadata` or `score` for
+    // every result, which reads as "the index is bad" rather than "the query was".
+    const query = vi.fn().mockResolvedValue({ rows: () => [[]] });
+    const store = makeStore({ query });
+
+    await store.search('anything', { limit: 3 });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nResults: 3,
+        include: ['documents', 'metadatas', 'distances'],
+        queryEmbeddings: [[1, 0, 0]],
+      }),
+    );
+  });
+
+  it('returns nothing when the server answers with no row set at all', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: () => [] });
+    const store = makeStore({ query });
+
+    expect(await store.search('anything')).toEqual([]);
+  });
+
+  it('creates the collection with the cosine space its scoring assumes', async () => {
+    // `score = 1 - distance` is only a similarity in cosine space; under L2 the
+    // same arithmetic silently produces negative nonsense.
+    const store = makeStore({ count: vi.fn().mockResolvedValue(0) });
+
+    await store.count();
+
+    expect(chroma.getOrCreateCollection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'code',
+        embeddingFunction: null,
+        configuration: { hnsw: { space: 'cosine', ef_construction: 200, max_neighbors: 16 } },
+      }),
+    );
+  });
+
+  it('reports the collection size', async () => {
+    const store = makeStore({ count: vi.fn().mockResolvedValue(42) });
+
+    expect(await store.count()).toBe(42);
+  });
+
   it('surfaces an unreachable server from healthCheck, so the caller can fall back', async () => {
     const store = makeStore({});
     chroma.heartbeat.mockRejectedValueOnce(new Error('ECONNREFUSED'));

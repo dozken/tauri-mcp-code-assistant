@@ -289,6 +289,9 @@ npm run test:e2e          # Playwright (boots the backend and Vite itself)
 npm run mutation          # Stryker across all three workspaces
 ```
 
+What goes in which suite, which mutants are deliberately not chased and why, and the two
+rules that keep finding real bugs, are in [docs/testing.md](docs/testing.md).
+
 | Suite                                      | Covers                                                                                |
 | ------------------------------------------ | ------------------------------------------------------------------------------------- |
 | `packages/contracts/src/contracts.spec.ts` | Every wire schema: what it accepts, and what it must reject                           |

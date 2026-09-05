@@ -35,6 +35,7 @@ export class VectorStoreService implements VectorStore {
     })
       .then((store) => {
         this.resolvedKind = store.kind;
+        // Stryker disable next-line all: log payload — see docs/testing.md#logging
         this.logger.info({ store: store.kind }, 'Vector store ready');
         return store;
       })

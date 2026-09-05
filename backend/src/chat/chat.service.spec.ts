@@ -326,6 +326,38 @@ describe('ChatService deadline', () => {
     );
   });
 
+  it('still names the timeout when the model layer buries the abort', async () => {
+    // The whole reason the signal is consulted instead of the error text: a
+    // provider SDK that catches the abort and rethrows its own generic failure.
+    // Matching on the message would leave the user with "Request failed" and no
+    // hint that `LLM_TIMEOUT_MS` is the knob.
+    const buriesTheAbort = {
+      _llmType: () => 'burier',
+      bindTools: () => buriesTheAbort,
+      stream: async (_messages: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            reject(new Error('Request failed with status code 500'));
+          });
+        }),
+    } as unknown as BaseChatModel;
+
+    const base = testConfig();
+    const chat = new ChatService(
+      buriesTheAbort,
+      { getTools: async () => [] } as unknown as McpToolsService,
+      { ...base, llm: { ...base.llm, timeoutMs: 20 } },
+      silentLogger(),
+    );
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(events.at(-1)).toMatchObject({
+      error: expect.stringContaining('did not answer within'),
+    });
+    expect(JSON.stringify(events.at(-1))).not.toContain('status code 500');
+  });
+
   it('reports a caller cancel as a cancel, not as a timeout', async () => {
     const { chat } = await buildChatService({ timeoutMs: 60_000, tokenDelayMs: 20 });
     const controller = new AbortController();

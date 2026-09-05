@@ -69,6 +69,7 @@ export class IndexingService implements OnModuleInit {
         stale: record.store !== 'chroma',
       });
     }
+    // Stryker disable next-line all: log payload — see docs/testing.md#logging
     this.logger.info({ roots: this.roots.size }, 'Restored indexed roots');
   }
 
@@ -205,6 +206,7 @@ export class IndexingService implements OnModuleInit {
     } catch (error) {
       job.state = 'failed';
       job.error = error instanceof Error ? error.message : String(error);
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.error({ err: error, root: job.root }, 'Indexing failed');
     } finally {
       job.finishedAt = new Date().toISOString();
@@ -221,6 +223,7 @@ export class IndexingService implements OnModuleInit {
         };
         this.roots.set(job.root, { ...record, stale: false });
         await this.metadata.upsertRoot(record).catch((error: unknown) => {
+          // Stryker disable next-line all: log payload — see docs/testing.md#logging
           this.logger.warn({ err: error }, 'Could not persist indexed root');
         });
       }
@@ -258,6 +261,7 @@ export class IndexingService implements OnModuleInit {
           previous.delete(file.absolutePath);
         } catch (error) {
           // One unreadable or undecodable file must not abort a whole repository.
+          // Stryker disable next-line all: log payload — see docs/testing.md#logging
           this.logger.warn({ err: error, file: file.absolutePath }, 'Skipped file');
           // Not recorded as seen, so the next run retries it rather than treating
           // a transient read failure as a deletion.
@@ -270,6 +274,7 @@ export class IndexingService implements OnModuleInit {
 
     await Promise.all(Array.from({ length: workers }, worker));
     await this.metadata.upsertFiles(seen).catch((error: unknown) => {
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.warn({ err: error }, 'Could not persist per-file index state');
     });
   }
@@ -332,8 +337,10 @@ export class IndexingService implements OnModuleInit {
     const paths = [...missing.keys()];
     await this.vectorStore.deleteByPaths(paths);
     await this.metadata.removeFiles(paths).catch((error: unknown) => {
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.warn({ err: error, root }, 'Could not forget removed files');
     });
+    // Stryker disable next-line all: log payload — see docs/testing.md#logging
     this.logger.info({ root, removed: paths.length }, 'Dropped chunks for missing files');
   }
 

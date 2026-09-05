@@ -16,7 +16,7 @@ import { MemoryMetadataStore } from '../common/metadata-store.js';
 import { HashingEmbeddings } from '../vector/embeddings.js';
 import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
-import { silentLogger, testConfig } from '../../test/helpers.js';
+import { recordingLogger, silentLogger, testConfig } from '../../test/helpers.js';
 import { IndexingService } from './indexing.service.js';
 
 /** The in-memory store satisfies the same contract the service depends on. */
@@ -210,6 +210,162 @@ describe('IndexingService', () => {
     expect(status.activeJob).toBeNull();
     expect(status.roots[0]!.fileCount).toBe(3);
     spy.mockRestore();
+  });
+
+  describe('status and cancellation', () => {
+    it('lists roots in path order, however they were added', async () => {
+      // The sidebar renders this list as given; unsorted, a folder jumps position
+      // every time another one is re-indexed.
+      const second = await realpath(await mkdtemp(join(tmpdir(), 'companion-aaa-')));
+      await writeFile(join(second, 'other.ts'), 'export const c = 3;\n');
+      const wide = await build({ allowedRoots: [root, second] });
+
+      await wide.startIndexing(root);
+      await settle(wide);
+      await wide.startIndexing(second);
+      await settle(wide);
+
+      const paths = (await wide.getStatus()).roots.map((entry) => entry.path);
+      expect(paths).toEqual([...paths].toSorted());
+      expect(paths).toHaveLength(2);
+      await rm(second, { recursive: true, force: true });
+    });
+
+    it('reports zero chunks rather than failing status when the store cannot be counted', async () => {
+      // `/status` drives the whole sidebar. A Chroma hiccup must degrade one
+      // number, not blank the folder list and the progress bar with it.
+      vi.spyOn(store, 'count').mockRejectedValue(new Error('chroma unreachable'));
+
+      await expect(service.getStatus()).resolves.toMatchObject({ totalChunks: 0 });
+    });
+
+    it('logs the outcome of a run with the fields an operator needs', async () => {
+      // This line is the operational contract: it is what somebody greps when a
+      // folder looks wrong, and an empty payload turns that into guesswork.
+      const logger = recordingLogger();
+      const config = testConfig({
+        indexing: {
+          chunkSize: 400,
+          chunkOverlap: 50,
+          maxFileBytes: 64 * 1024,
+          concurrency: 4,
+          allowedRoots: [root],
+        },
+      });
+      const logged = new IndexingService(config, metadata, asVectorStoreService(store), logger);
+      await logged.onModuleInit();
+
+      await logged.startIndexing(root);
+      await settle(logged);
+
+      const finished = logger.lines.find((line) => line.message === 'Indexing finished');
+      expect(finished?.payload).toMatchObject({ root, state: 'completed' });
+      expect(finished?.payload.files).toBeGreaterThan(0);
+      expect(finished?.payload.chunks).toBeGreaterThan(0);
+    });
+
+    it('indexes files in parallel up to the configured concurrency', async () => {
+      // Deterministic rather than timed: the barrier only resolves once three
+      // files are in flight at once, so a serial walker hangs instead of racing.
+      const parallel = 3;
+      let inFlight = 0;
+      let release = (): void => undefined;
+      const everyoneArrived = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      vi.spyOn(store, 'upsert').mockImplementation(async () => {
+        inFlight += 1;
+        if (inFlight >= parallel) release();
+        await everyoneArrived;
+      });
+
+      const concurrent = await build({ concurrency: parallel });
+      await concurrent.startIndexing(root);
+
+      await expect(everyoneArrived).resolves.toBeUndefined();
+      await settle(concurrent);
+    });
+
+    it('emits a progress event at the start and the end, whatever the throttle', async () => {
+      // Between those two the stream is rate limited, so without forcing them a
+      // fast folder could finish having told the UI nothing at all.
+      const events: string[] = [];
+      const subscription = service.progress.subscribe((event) => events.push(event.state));
+
+      await service.startIndexing(root);
+      await settle(service);
+      subscription.unsubscribe();
+
+      expect(events.at(0)).toBe('running');
+      expect(events.at(-1)).toBe('completed');
+    });
+
+    it('says whether there was anything to cancel', async () => {
+      expect(service.cancel()).toBe(false);
+
+      await service.startIndexing(root);
+      expect(service.cancel()).toBe(true);
+      await settle(service);
+
+      expect((await service.getStatus()).activeJob).toBeNull();
+    });
+
+    it('records a cancelled run as an indexed root, so partial work is not lost', async () => {
+      await service.startIndexing(root);
+      service.cancel();
+      await settle(service);
+
+      // Cancelled, not failed: the chunks that did land are real and searchable.
+      expect((await service.getStatus()).roots.map((entry) => entry.path)).toEqual([root]);
+    });
+
+    it('cancels an in-flight job when its folder is removed', async () => {
+      // Otherwise the job's `finally` re-creates the record it just deleted and
+      // the folder reappears seconds after the user removed it.
+      await service.startIndexing(root);
+      await service.removeRoot(root);
+      await settle(service);
+
+      const status = await service.getStatus();
+      expect(status.roots).toEqual([]);
+      expect(status.totalChunks).toBe(0);
+    });
+
+    it('marks the job failed, without wedging the slot, when the run itself throws', async () => {
+      // Reading the per-file state is the first thing a run does and the first
+      // thing that can fail outright — a locked or corrupt SQLite file.
+      const listFiles = vi
+        .spyOn(metadata, 'listFiles')
+        .mockRejectedValue(new Error('database is locked'));
+      const events: string[] = [];
+      const subscription = service.progress.subscribe((event) => events.push(event.state));
+
+      await service.startIndexing(root);
+      await settle(service);
+      subscription.unsubscribe();
+
+      expect(events).toContain('failed');
+      // A failure must not leave the folder listed as if it had been indexed.
+      expect((await service.getStatus()).roots).toEqual([]);
+
+      // And the next request must still be accepted: a failure is not a stuck job.
+      listFiles.mockRestore();
+      await expect(service.startIndexing(root)).resolves.toMatchObject({ state: 'running' });
+      await settle(service);
+    });
+
+    it('completes, reporting nothing indexed, when every single file fails to read', async () => {
+      // One unreadable file must not abort a repository, so the run completes —
+      // but it has to say it embedded nothing rather than claim a healthy index.
+      vi.spyOn(store, 'upsert').mockRejectedValue(new Error('disk on fire'));
+
+      await service.startIndexing(root);
+      await settle(service);
+
+      const status = await service.getStatus();
+      expect(status.roots[0]).toMatchObject({ path: root, chunkCount: 0 });
+      expect(status.totalChunks).toBe(0);
+    });
   });
 
   describe('one job at a time', () => {
@@ -422,6 +578,63 @@ describe('IndexingService', () => {
       await settle(service);
 
       expect((await service.getStatus()).totalChunks).toBe(before.totalChunks);
+    });
+
+    it('makes no server call it does not need on a run that changed nothing', async () => {
+      // Each of these guards exists to avoid a round trip, and against a real
+      // Chroma that is a network request per file. They are invisible in the
+      // result — the index is correct either way — so only the call count
+      // shows whether they still work.
+      await service.startIndexing(root);
+      await settle(service);
+
+      const deleteByPaths = vi.spyOn(store, 'deleteByPaths');
+      const upsert = vi.spyOn(store, 'upsert');
+      await service.startIndexing(root);
+      await settle(service);
+
+      // Nothing changed: nothing to replace, nothing to embed, nothing missing.
+      expect(deleteByPaths).not.toHaveBeenCalled();
+      expect(upsert).not.toHaveBeenCalled();
+    });
+
+    it('does not embed an empty chunk list for a file that produced none', async () => {
+      await writeFile(join(root, 'blob.ts'), `export const x = 1;\u0000`);
+      const upsert = vi.spyOn(store, 'upsert');
+
+      await service.startIndexing(root);
+      await settle(service);
+
+      // Every call carries work; a binary file contributes no empty batch.
+      expect(upsert.mock.calls.every((call) => call[0].length > 0)).toBe(true);
+    });
+
+    it('still serves the folder when its root record could not be persisted', async () => {
+      // SQLite is a convenience here, not the source of truth: losing the write
+      // costs the folder list on next launch, not this session's index.
+      vi.spyOn(metadata, 'upsertRoot').mockRejectedValue(new Error('disk full'));
+
+      await service.startIndexing(root);
+      await settle(service);
+
+      const status = await service.getStatus();
+      expect(status.roots.map((entry) => entry.path)).toEqual([root]);
+      expect(status.totalChunks).toBeGreaterThan(0);
+    });
+
+    it('drops the chunks of a deleted file even if forgetting its record fails', async () => {
+      // The vector store is what answers queries. If the bookkeeping write fails,
+      // the stale chunks must already be gone rather than waiting on a retry.
+      await service.startIndexing(root);
+      await settle(service);
+
+      await rm(join(root, 'auth.ts'));
+      vi.spyOn(metadata, 'removeFiles').mockRejectedValue(new Error('disk full'));
+      await service.startIndexing(root);
+      await settle(service);
+
+      const remaining = await store.search('authenticate', { limit: 20 });
+      expect(remaining.map((match) => match.metadata.relativePath)).not.toContain('auth.ts');
     });
 
     it('re-indexes from scratch after a restart lost the in-memory chunks', async () => {

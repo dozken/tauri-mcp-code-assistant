@@ -77,6 +77,28 @@ describe('walkFiles', () => {
     expect(await collect(root)).not.toContain('empty.ts');
   });
 
+  it('takes a file of exactly the cap, and rejects the first byte over', async () => {
+    // An inclusive bound: `<` instead of `<=` would quietly drop every file that
+    // happens to land on the limit.
+    await writeFile(join(root, 'exact.ts'), 'x'.repeat(100));
+    await writeFile(join(root, 'over.ts'), 'x'.repeat(101));
+
+    const found = await collect(root, 100);
+
+    expect(found).toContain('exact.ts');
+    expect(found).not.toContain('over.ts');
+  });
+
+  it('honours a gitignore directory rule written without a trailing slash', async () => {
+    // `ignore` matches a directory rule only when asked with the trailing slash,
+    // so the walker has to ask both ways or `build` never gets pruned.
+    await mkdir(join(root, 'build'), { recursive: true });
+    await writeFile(join(root, 'build', 'out.ts'), 'export const d = 4;\n');
+    await writeFile(join(root, '.gitignore'), 'build\n');
+
+    expect(await collect(root)).not.toContain('build/out.ts');
+  });
+
   it('honours .gitignore, including a directory rule', async () => {
     await mkdir(join(root, 'generated'), { recursive: true });
     await writeFile(join(root, 'generated', 'api.ts'), 'export const c = 3;\n');
