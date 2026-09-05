@@ -13,6 +13,7 @@ export const spacer: SxProps<Theme> = { flex: 1 };
 
 export const rootList: SxProps<Theme> = { flex: 1, overflowY: 'auto', py: 0 };
 export const rootPath: SxProps<Theme> = { fontFamily: MONOSPACE, display: 'block' };
+/** Shared by every status chip on a folder row, so they line up with each other. */
 export const staleChip: SxProps<Theme> = { ml: 1, height: 18 };
 export const footer: SxProps<Theme> = { px: 2, py: 1 };
 

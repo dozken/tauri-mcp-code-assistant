@@ -53,6 +53,8 @@ describe('MCP server', () => {
         maxFileBytes: 64 * 1024,
         concurrency: 2,
         allowedRoots: [root],
+        watch: false,
+        watchDebounceMs: 5,
       },
     });
 

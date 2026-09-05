@@ -193,6 +193,21 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
                         sx={styles.staleChip}
                       />
                     ) : null}
+                    {/*
+                      Watching is invisible otherwise: the user turned it on in
+                      the environment and has no way to see it took effect.
+                    */}
+                    {root.watching === true ? (
+                      <Chip
+                        size="small"
+                        color="success"
+                        variant="outlined"
+                        label="live"
+                        title="Re-indexed as these files change"
+                        sx={styles.staleChip}
+                        data-testid="watching-chip"
+                      />
+                    ) : null}
                   </>
                 }
                 slotProps={styles.rootItemText}

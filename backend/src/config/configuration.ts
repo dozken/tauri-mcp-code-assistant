@@ -76,6 +76,14 @@ export interface AppConfig {
      * confined to an explicit allow-list (defaults to the user's home dir).
      */
     readonly allowedRoots: string[];
+    /**
+     * Re-index a root when its files change on disk. Off by default: it holds an
+     * OS watch handle per indexed root for as long as the app runs, which is a
+     * cost the user should opt into rather than discover.
+     */
+    readonly watch: boolean;
+    /** How long a root must be quiet before it is re-indexed. */
+    readonly watchDebounceMs: number;
   };
   readonly mcp: {
     /** Route agent tool calls through a real MCP stdio round-trip. */
@@ -173,6 +181,8 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       maxFileBytes: num(env.MAX_FILE_BYTES, 512 * 1024),
       concurrency: num(env.INDEX_CONCURRENCY, 8),
       allowedRoots: list(env.INDEX_ALLOWED_ROOTS, [homedir()]).map((entry) => resolve(entry)),
+      watch: bool(env.INDEX_WATCH, false),
+      watchDebounceMs: num(env.INDEX_WATCH_DEBOUNCE_MS, 1500),
     },
     mcp: {
       clientEnabled: bool(env.MCP_CLIENT_ENABLED, false),

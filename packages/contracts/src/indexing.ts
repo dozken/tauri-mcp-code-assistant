@@ -30,6 +30,11 @@ export const indexedRootSchema = z.object({
    * has restarted since — the folder is listed but no longer searchable.
    */
   stale: z.boolean(),
+  /**
+   * True when the backend is watching this folder and will re-index it as the
+   * files change. Optional so a client that predates watch mode still validates.
+   */
+  watching: z.boolean().optional(),
 });
 
 /**

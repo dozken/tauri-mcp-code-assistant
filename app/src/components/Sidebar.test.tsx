@@ -80,6 +80,22 @@ describe('Sidebar', () => {
     expect(within(list).getByText(/12 files · 48 chunks/)).toBeInTheDocument();
   });
 
+  it('says when a folder is being kept up to date, and when it is not', () => {
+    // Watching is configured in the environment and is otherwise invisible: the
+    // user has no way to tell whether the setting took.
+    act(() => {
+      useAppStore.setState({ roots: [root({ watching: true })] });
+    });
+    renderSidebar();
+    expect(screen.getByTestId('watching-chip')).toBeInTheDocument();
+
+    // The same component, told the folder is no longer watched.
+    act(() => {
+      useAppStore.setState({ roots: [root({ watching: false })] });
+    });
+    expect(screen.queryByTestId('watching-chip')).not.toBeInTheDocument();
+  });
+
   it('flags a folder whose chunks did not survive a restart', () => {
     act(() => {
       useAppStore.setState({ roots: [root({ stale: true })] });

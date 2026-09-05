@@ -50,6 +50,23 @@ With no server reachable the app logs a warning and falls back to an in-memory s
 usable immediately, but the index is lost on restart (folders are then flagged
 _needs re-index_ in the sidebar).
 
+### Optional: keeping the index live
+
+```bash
+export INDEX_WATCH=true                # off by default
+export INDEX_WATCH_DEBOUNCE_MS=1500    # quiet period before a re-index
+```
+
+Each indexed folder is then watched, and edits re-index the files that actually changed —
+re-indexing has been incremental for a while; this is what makes it automatic. A burst of
+saves costs one pass, not one per file, and changes under `node_modules`, `dist`, `.git` and
+the rest of the skip list are ignored before they ever wake the indexer. Watched folders are
+marked _live_ in the sidebar.
+
+It is off by default because it holds an OS watch handle per folder for as long as the app
+runs, and recursive watching is unsupported on some platforms and filesystems — where it is,
+the app logs a warning and carries on indexing on demand.
+
 ### Optional: a real model
 
 ```bash
@@ -568,8 +585,8 @@ Three rules the runtime enforces, and one it does not:
 
 ### Known limitations
 
-- Re-indexing is incremental but not automatic: nothing watches the folder, so a
-  re-index is still something you ask for.
+- Watching uses `fs.watch` with `recursive: true`, which not every platform and filesystem
+  supports; where it is missing the app says so and falls back to indexing on request.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
 - `.gitignore` is read from the folder root only, not from nested directories.
 - Chat history is held by the client and replayed on each turn; there is no server-side session.

@@ -62,6 +62,8 @@ describe('CodeToolsService', () => {
         maxFileBytes: 64 * 1024,
         concurrency: 2,
         allowedRoots: [root],
+        watch: false,
+        watchDebounceMs: 5,
       },
     });
     tools = new CodeToolsService(config, store as unknown as VectorStoreService);

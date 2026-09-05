@@ -46,6 +46,8 @@ describe('HTTP API', () => {
           maxFileBytes: 64 * 1024,
           concurrency: 2,
           allowedRoots: [root],
+          watch: false,
+          watchDebounceMs: 5,
         },
         metadataDb: join(root, 'metadata.sqlite'),
       })

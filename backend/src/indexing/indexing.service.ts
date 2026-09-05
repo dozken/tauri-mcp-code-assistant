@@ -140,6 +140,15 @@ export class IndexingService implements OnModuleInit {
     return true;
   }
 
+  /**
+   * The paths currently indexed. Cheap on purpose: `getStatus` counts chunks,
+   * which forces the vector store to resolve, and a caller that only wants the
+   * list should not be what connects to Chroma at boot.
+   */
+  indexedRoots(): string[] {
+    return [...this.roots.keys()];
+  }
+
   async getStatus(): Promise<IndexStatus> {
     return {
       activeJob: this.activeJob === null ? null : toProgressEvent(this.activeJob),
@@ -150,7 +159,8 @@ export class IndexingService implements OnModuleInit {
     };
   }
 
-  async removeRoot(inputPath: string): Promise<void> {
+  /** Returns the resolved root, so a caller can drop what it keyed on that path. */
+  async removeRoot(inputPath: string): Promise<string> {
     // Roots are keyed by their real path. Resolve symlinks to match, but fall back
     // to the literal path so a folder that has since been deleted from disk can
     // still be removed from the index.
@@ -174,6 +184,7 @@ export class IndexingService implements OnModuleInit {
     await this.vectorStore.deleteByRoot(root);
     await this.metadata.removeRoot(root);
     this.roots.delete(root);
+    return root;
   }
 
   private async run(job: IndexJob, signal: AbortSignal): Promise<void> {

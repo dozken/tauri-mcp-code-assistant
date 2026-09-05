@@ -55,6 +55,8 @@ describe('IndexingService', () => {
         maxFileBytes: 64 * 1024,
         concurrency: 4,
         allowedRoots: [root],
+        watch: false,
+        watchDebounceMs: 5,
         ...overrides,
       },
     });
@@ -288,6 +290,8 @@ describe('IndexingService', () => {
             maxFileBytes: 64 * 1024,
             concurrency: 4,
             allowedRoots: [root],
+            watch: false,
+            watchDebounceMs: 5,
           },
         }),
         metadata,
@@ -318,6 +322,8 @@ describe('IndexingService', () => {
           maxFileBytes: 64 * 1024,
           concurrency: 4,
           allowedRoots: [root],
+          watch: false,
+          watchDebounceMs: 5,
         },
       });
       const logged = new IndexingService(
@@ -815,6 +821,8 @@ describe('IndexingService', () => {
             maxFileBytes: 64 * 1024,
             concurrency: 4,
             allowedRoots: [root],
+            watch: false,
+            watchDebounceMs: 5,
           },
         }),
         metadata,
