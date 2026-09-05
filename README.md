@@ -265,7 +265,7 @@ npm run check      # format:check → lint → typecheck → knip → deps → t
 | `npm run typecheck`     | tsc, `strict` + `noUncheckedIndexedAccess` | Every index access is `T \| undefined` until you narrow it         |
 | `npm run knip`          | Knip                                       | Unused files, exports and dependencies                             |
 | `npm run deps`          | dependency-cruiser                         | Module boundaries and cycles (see below)                           |
-| `npm test`              | Vitest                                     | 320 unit, container and MCP-protocol tests                         |
+| `npm test`              | Vitest                                     | 915 unit, container and MCP-protocol tests                         |
 | `npm run test:cov`      | Vitest + v8                                | Coverage thresholds, enforced per workspace                        |
 | `npm run test:e2e`      | Playwright                                 | The real browser build against the real backend                    |
 | `npm run mutation`      | Stryker                                    | Whether the tests would actually notice a bug                      |

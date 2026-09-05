@@ -1,4 +1,5 @@
 import type { SxProps, Theme } from '@mui/material/styles';
+import { CODE_SURFACE } from './Markdown.styles';
 
 /**
  * Quiet until wanted, but never hidden: `opacity` rather than `display`, so the
@@ -24,9 +25,16 @@ export const anchor: SxProps<Theme> = {
   [`&:hover .${REVEAL_ON_HOVER}`]: { opacity: 1 },
 };
 
+/**
+ * Floats over the top-right of the block, and paints its own background to do it:
+ * a long first line scrolls underneath, and a translucent icon on top of code is
+ * a smudge rather than a control.
+ */
 export const corner: SxProps<Theme> = {
   position: 'absolute',
   top: 4,
   right: 4,
   zIndex: 1,
+  borderRadius: 1,
+  bgcolor: (theme) => CODE_SURFACE[theme.palette.mode],
 };
