@@ -11,8 +11,10 @@ const configWith = (overrides: Partial<AppConfig['rateLimit']> = {}): AppConfig 
     rateLimit: {
       enabled: true,
       windowMs: 60_000,
+      // Different on purpose: equal budgets would make "which route is this?"
+      // unobservable, and the wrong one could be applied for good.
       chatPerWindow: 1,
-      indexPerWindow: 1,
+      indexPerWindow: 2,
       ...overrides,
     },
   };
@@ -51,6 +53,18 @@ describe('RateLimitGuard', () => {
     }
   });
 
+  it('gives each route the budget configured for it', () => {
+    const guard = new RateLimitGuard(configWith());
+
+    expect(guard.canActivate(httpContext('POST', '/index'))).toBe(true);
+    expect(guard.canActivate(httpContext('POST', '/index'))).toBe(true);
+    expect(() => guard.canActivate(httpContext('POST', '/index'))).toThrow(/RATE_LIMIT_INDEX/);
+
+    // /chat's budget is one, and spending /index's did not spend it.
+    expect(guard.canActivate(httpContext('POST', '/chat'))).toBe(true);
+    expect(() => guard.canActivate(httpContext('POST', '/chat'))).toThrow(/RATE_LIMIT_CHAT/);
+  });
+
   it('does not charge a DELETE for the POST that shares its path', () => {
     // `DELETE /index` drops a folder from the index; it is cheap, and the fuse is
     // for the walk that `POST /index` starts.
@@ -70,13 +84,6 @@ describe('RateLimitGuard', () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       expect(guard.canActivate(wsContext())).toBe(true);
     }
-  });
-
-  it('names the setting that would let the caller through', () => {
-    const guard = new RateLimitGuard(configWith());
-    guard.canActivate(httpContext('POST', '/index'));
-
-    expect(() => guard.canActivate(httpContext('POST', '/index'))).toThrow(/RATE_LIMIT_INDEX/);
   });
 
   it('reports how long to wait, so a client can back off rather than spin', () => {

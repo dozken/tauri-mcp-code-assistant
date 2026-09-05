@@ -25,6 +25,8 @@ export class RateLimitGuard implements CanActivate {
     if (!this.config.rateLimit.enabled || context.getType() !== 'http') return true;
 
     const request = context.switchToHttp().getRequest<{ path?: string; method?: string }>();
+    // Stryker disable next-line StringLiteral: Express always sets `path`; the
+    // fallback exists because the type says it might not.
     const path = request.path ?? '';
     // A GET is a read; the cost this guards is in starting work, not in asking
     // about it, and `DELETE /index` shares a path with the expensive `POST`.

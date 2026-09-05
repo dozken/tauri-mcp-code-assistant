@@ -1,9 +1,29 @@
+import { EventEmitter } from 'node:events';
+import type * as NodeFs from 'node:fs';
+import type { FSWatcher } from 'node:fs';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * An ESM namespace is not configurable, so `fs.watch` cannot be spied on — it has
+ * to be replaced at module level. Left as the real thing unless a test sets
+ * `stub.current`, so every other case still watches a real directory.
+ */
+const stub = vi.hoisted(() => ({ current: undefined as (() => FSWatcher) | undefined }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFs>();
+  return {
+    ...actual,
+    watch: (...args: Parameters<typeof actual.watch>) =>
+      stub.current === undefined ? actual.watch(...args) : stub.current(),
+  };
+});
 import type { AppConfig } from '../config/configuration.js';
-import { silentLogger, testConfig } from '../../test/helpers.js';
+import { recordingLogger, silentLogger, testConfig } from '../../test/helpers.js';
+import type { PinoLogger } from 'nestjs-pino';
 import { IndexWatcherService, isInteresting } from './index-watcher.service.js';
 import type { IndexingService } from './indexing.service.js';
 
@@ -12,7 +32,12 @@ const DEBOUNCE_MS = 30;
 const settle = (): Promise<void> => new Promise((done) => setTimeout(done, DEBOUNCE_MS * 6));
 
 const build = async (
-  overrides: { watch?: boolean; roots?: string[]; startIndexing?: () => Promise<unknown> } = {},
+  overrides: {
+    watch?: boolean;
+    roots?: string[];
+    startIndexing?: () => Promise<unknown>;
+    logger?: PinoLogger;
+  } = {},
 ) => {
   const root = await mkdtemp(join(tmpdir(), 'companion-watch-'));
   const base = testConfig();
@@ -32,7 +57,7 @@ const build = async (
     startIndexing,
   } as unknown as IndexingService;
 
-  const watcher = new IndexWatcherService(config, indexing, silentLogger());
+  const watcher = new IndexWatcherService(config, indexing, overrides.logger ?? silentLogger());
   return { watcher, root, startIndexing };
 };
 
@@ -40,6 +65,7 @@ const cleanup: (() => Promise<void>)[] = [];
 
 afterEach(async () => {
   for (const done of cleanup.splice(0)) await done();
+  stub.current = undefined;
   vi.restoreAllMocks();
 });
 
@@ -105,6 +131,84 @@ describe('IndexWatcherService', () => {
     await settle();
 
     expect(startIndexing).not.toHaveBeenCalled();
+  });
+
+  it('re-indexes a change in a subdirectory, not only at the top level', async () => {
+    // Watching only the top level would miss `src/`, which is where the code is.
+    const { watcher, root, startIndexing } = await build();
+    cleanup.push(async () => {
+      watcher.onModuleDestroy();
+      await rm(root, { recursive: true, force: true });
+    });
+    await mkdir(join(root, 'src', 'deep'), { recursive: true });
+
+    watcher.onModuleInit();
+    await writeFile(join(root, 'src', 'deep', 'a.ts'), 'export const a = 1;');
+    await settle();
+
+    expect(startIndexing).toHaveBeenCalledWith(root);
+  });
+
+  it('carries on indexing on demand when the platform cannot watch', async () => {
+    // Recursive watching is unsupported on some platforms and filesystems. A
+    // missing feature must not stop the app from starting.
+    const logger = recordingLogger();
+    const { watcher, root, startIndexing } = await build({ logger });
+    cleanup.push(async () => {
+      watcher.onModuleDestroy();
+      await rm(root, { recursive: true, force: true });
+    });
+    stub.current = () => {
+      throw new Error('ENOSYS: recursive watching is not supported');
+    };
+
+    expect(() => {
+      watcher.onModuleInit();
+    }).not.toThrow();
+    expect(watcher.isWatching(root)).toBe(false);
+    expect(startIndexing).not.toHaveBeenCalled();
+    // Silence would leave the user wondering why nothing re-indexes; this is the
+    // line they grep for.
+    expect(logger.lines.map((line) => line.message)).toContain('Could not watch this folder');
+  });
+
+  it('gives up on a folder whose watch errors, rather than dying with it', async () => {
+    // A watched folder can be unmounted or deleted underneath us. Unhandled, that
+    // error takes the whole process down.
+    const { watcher, root } = await build();
+    cleanup.push(async () => {
+      watcher.onModuleDestroy();
+      await rm(root, { recursive: true, force: true });
+    });
+
+    // `FSWatcher` is an EventEmitter and the code under test calls `.on`, so an
+    // EventTarget would not stand in for it.
+    // eslint-disable-next-line unicorn/prefer-event-target -- see above
+    const fake = Object.assign(new EventEmitter(), { close: vi.fn() });
+    stub.current = () => fake as unknown as FSWatcher;
+
+    watcher.onModuleInit();
+    expect(watcher.isWatching(root)).toBe(true);
+
+    fake.emit('error', new Error('EPERM'));
+
+    expect(watcher.isWatching(root)).toBe(false);
+    expect(fake.close).toHaveBeenCalled();
+  });
+
+  it('refuses to start watching again once it has shut down', async () => {
+    // A late `POST /index` can land between `onModuleDestroy` and the process
+    // actually exiting, and must not open a handle nothing will ever close.
+    const { watcher, root } = await build();
+    cleanup.push(async () => {
+      await rm(root, { recursive: true, force: true });
+    });
+
+    watcher.onModuleInit();
+    watcher.onModuleDestroy();
+    watcher.watchRoot(root);
+
+    expect(watcher.isWatching(root)).toBe(false);
   });
 
   it('stops watching a root that has been removed', async () => {

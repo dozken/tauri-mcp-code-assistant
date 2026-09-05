@@ -13,6 +13,7 @@ import {
   type CancelChatResponse,
   type ChatRequest,
   type ChatStreamEvent,
+  type ToolInvocation,
 } from '@ai-code-companion/contracts';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ChatService } from './chat.service.js';
@@ -24,7 +25,10 @@ import { ChatService } from './chat.service.js';
  * its place. A cancelled turn must say so, or the client waits forever for an end
  * that is never coming: the composer stays stuck on Stop and nothing can be sent.
  */
+// Stryker disable next-line StringLiteral: the two values are opaque — nothing
+// outside this file reads them, and only their being different is behaviour.
 const CANCELLED = 'cancelled';
+// Stryker disable next-line StringLiteral: as above.
 const REPLACED = 'replaced';
 
 const STREAM_EVENT_NAMES: Record<ChatStreamEvent['type'], string> = {
@@ -57,13 +61,17 @@ export class ChatGateway implements OnGatewayDisconnect {
     const controller = new AbortController();
     this.inFlight.set(client.id, controller);
     const conversationId = payload.conversationId ?? '';
-    // Accumulated as it is forwarded, so a stop can hand back what did arrive.
+    // Both accumulated as they are forwarded, so a stop can hand back what did
+    // arrive. A turn that ran two tools and was then stopped really did run them,
+    // and a `done` claiming otherwise is a worse record than no `done` at all.
     let answer = '';
+    const toolCalls: ToolInvocation[] = [];
 
     try {
       for await (const event of this.chat.stream(payload, controller.signal)) {
         if (controller.signal.aborted) break;
         if (event.type === 'token') answer += event.token;
+        if (event.type === 'tool') toolCalls.push(event.tool);
         client.emit(STREAM_EVENT_NAMES[event.type], event);
       }
 
@@ -73,10 +81,11 @@ export class ChatGateway implements OnGatewayDisconnect {
           type: 'done',
           conversationId,
           message: answer,
-          toolCalls: [],
+          toolCalls,
         });
       }
     } catch (error) {
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.error({ err: error }, 'Chat stream crashed');
       client.emit(SOCKET_EVENTS.chatError, {
         type: 'error',

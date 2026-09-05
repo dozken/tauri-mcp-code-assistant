@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # The mutation job is gated on this and on a manual run. Without the trigger it
+  # was gated on a schedule that did not exist, so it had never run once on its
+  # own. Weekly rather than nightly: the run takes tens of minutes, and the thing
+  # it catches — a test that stopped testing anything — does not appear overnight.
+  schedule:
+    - cron: '0 3 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

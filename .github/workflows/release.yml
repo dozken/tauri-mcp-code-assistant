@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (defaults to the current ref)'
+        required: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  # The gate runs on every push already, but a tag can be pushed to any commit —
+  # including one that never saw CI. A release that skips the checks is how a
+  # broken build reaches users with a version number attached.
+  verify:
+    name: Gate
+    runs-on: ubuntu-latest
+    env:
+      CHROMA_ENABLED: 'false'
+      LLM_PROVIDER: stub
+      STUB_TOKEN_DELAY_MS: '0'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  bundle:
+    name: ${{ matrix.label }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple silicon and Intel from one job; the two are separate binaries
+          # and shipping only the host's would leave half the users out.
+          - os: macos-latest
+            label: macOS (universal)
+            args: '--target universal-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - os: ubuntu-22.04
+            label: Linux (deb, rpm, AppImage)
+            args: ''
+            rust-targets: ''
+          - os: windows-latest
+            label: Windows (msi, nsis)
+            args: ''
+            rust-targets: ''
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - name: Install Tauri system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev libsoup-3.0-dev
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Absent on a fork or a first release: the bundles still build, they
+          # just carry no update signature. A missing secret must not be the
+          # reason a release fails at the last step.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS notarisation and Windows Authenticode, when the certificates exist.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: app
+          args: ${{ matrix.args }}
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: AI Code Companion ${{ inputs.tag || github.ref_name }}
+          # Draft, so a human reads the notes and checks the artefacts before
+          # anyone downloads them.
+          releaseDraft: true
+          prerelease: false
+          releaseBody: |
+            The desktop bundle is the UI shell. It expects the backend on
+            `127.0.0.1:3001` — see the README for running it, or set
+            `COMPANION_BACKEND_URL` to point the window elsewhere.

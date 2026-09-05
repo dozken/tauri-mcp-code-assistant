@@ -31,6 +31,12 @@ const makeGateway = (
 
 const request: ChatRequest = { message: 'hello' };
 
+const toolEvent = (name: string): ChatStreamEvent => ({
+  type: 'tool',
+  conversationId: 'c1',
+  tool: { name, args: {}, result: 'ok', durationMs: 1, failed: false },
+});
+
 describe('ChatGateway', () => {
   it('emits each stream event under its own socket name', async () => {
     const { client, emit } = fakeClient();
@@ -137,6 +143,56 @@ describe('ChatGateway', () => {
     });
   });
 
+  it('hands back the tools a stopped turn really ran', async () => {
+    // A turn that searched twice and was then stopped did search twice. A `done`
+    // claiming no tool calls is a worse record of it than no `done` at all — and
+    // `answer` must not swallow the tool events either, which it does the moment
+    // the token check stops discriminating.
+    const { client, emit } = fakeClient();
+    let release = (): void => {};
+    const gateway = makeGateway(async function* () {
+      yield toolEvent('search_code');
+      yield token('found ');
+      yield toolEvent('explain_file');
+      yield token('it');
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      yield token(' never');
+    });
+
+    const turn = gateway.onChat(request, client);
+    await vi.waitFor(() => {
+      expect(emit).toHaveBeenCalledTimes(4);
+    });
+    gateway.onCancel(client);
+    release();
+    await turn;
+
+    expect(emit.mock.calls.at(-1)?.[1]).toMatchObject({
+      type: 'done',
+      message: 'found it',
+      toolCalls: [
+        expect.objectContaining({ name: 'search_code' }),
+        expect.objectContaining({ name: 'explain_file' }),
+      ],
+    });
+  });
+
+  it('forgets a turn that finished on its own', async () => {
+    // Otherwise Stop stays live over a finished answer and reports success for
+    // cancelling something that ended a minute ago.
+    const { client } = fakeClient();
+    const gateway = makeGateway(async function* () {
+      yield token('a');
+      yield { type: 'done', conversationId: 'c1', message: 'a', toolCalls: [], model: 'stub' };
+    });
+
+    await gateway.onChat(request, client);
+
+    expect(gateway.onCancel(client)).toEqual({ cancelled: false });
+  });
+
   it('reports nothing to cancel when no turn is running', () => {
     const { client } = fakeClient();
     const gateway = makeGateway(async function* () {
@@ -198,6 +254,60 @@ describe('ChatGateway', () => {
 
     expect(signals[0]?.aborted).toBe(true);
     expect(signals[1]?.aborted).toBe(false);
+  });
+
+  it('lets a displaced turn finish without evicting the one that replaced it', async () => {
+    // Both turns share a socket. When the first finally settles, its cleanup must
+    // not remove the second's entry, or Stop stops working for a turn that is
+    // still very much running.
+    const { client, emit } = fakeClient();
+    const gates: (() => void)[] = [];
+    const gateway = makeGateway(async function* () {
+      yield token('a');
+      await new Promise<void>((resolve) => gates.push(resolve));
+    });
+
+    const first = gateway.onChat(request, client);
+    await vi.waitFor(() => {
+      expect(gates).toHaveLength(1);
+    });
+    const second = gateway.onChat(request, client);
+    await vi.waitFor(() => {
+      expect(gates).toHaveLength(2);
+    });
+
+    // Let only the displaced turn finish.
+    gates[0]?.();
+    await first;
+
+    expect(gateway.onCancel(client)).toEqual({ cancelled: true });
+    gates[1]?.();
+    await second;
+    expect(emit).toHaveBeenCalled();
+  });
+
+  it('forgets a turn the moment it is aborted, not when it finally unwinds', async () => {
+    // A generator can take as long as it likes to notice. Until it does, the
+    // socket must not still look like it has something to cancel.
+    const { client, emit } = fakeClient();
+    let release = (): void => {};
+    const gateway = makeGateway(async function* () {
+      yield token('a');
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+
+    const turn = gateway.onChat(request, client);
+    await vi.waitFor(() => {
+      expect(emit).toHaveBeenCalledTimes(1);
+    });
+
+    expect(gateway.onCancel(client)).toEqual({ cancelled: true });
+    expect(gateway.onCancel(client)).toEqual({ cancelled: false });
+
+    release();
+    await turn;
   });
 
   it('aborts a running turn when the socket goes away', async () => {

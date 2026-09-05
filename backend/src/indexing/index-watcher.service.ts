@@ -32,16 +32,17 @@ export class IndexWatcherService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    if (!this.config.indexing.watch) return;
+    // No `watch` check here: `watchRoot` owns that decision, and two copies of it
+    // is one to forget to change.
     for (const root of this.indexing.indexedRoots()) this.watchRoot(root);
   }
 
   onModuleDestroy(): void {
     this.stopped = true;
-    for (const timer of this.timers.values()) clearTimeout(timer);
-    this.timers.clear();
-    for (const watcher of this.watchers.values()) watcher.close();
-    this.watchers.clear();
+    // Through `unwatchRoot`, so shutdown and a single removal cannot drift apart.
+    // Deleting the entry being visited is well defined for a Map iterator, so
+    // this needs no snapshot.
+    for (const root of this.watchers.keys()) this.unwatchRoot(root);
   }
 
   /** Whether this root is being watched — the only thing `/status` could report. */
@@ -57,47 +58,65 @@ export class IndexWatcherService implements OnModuleInit, OnModuleDestroy {
     if (!this.config.indexing.watch || this.stopped || this.watchers.has(root)) return;
 
     try {
+      // Stryker disable next-line BooleanLiteral: `persistent: false` keeps the
+      // watch from holding the process open, which no in-process test can see.
       const watcher = watch(root, { recursive: true, persistent: false }, (_event, filename) => {
+        // Stryker disable next-line ConditionalExpression: a null filename is
+        // possible by the type and vanishingly rare in practice; the check is what
+        // stops it becoming a `TypeError` inside an OS callback.
         if (typeof filename === 'string' && isInteresting(filename)) this.schedule(root);
       });
       // A watch on a directory that later disappears surfaces here rather than as
       // an uncaught exception that takes the process with it.
       watcher.on('error', (error) => {
+        // Stryker disable next-line all: log payload — see docs/testing.md#logging
         this.logger.warn({ err: error, root }, 'Stopped watching a folder');
         this.unwatchRoot(root);
       });
       this.watchers.set(root, watcher);
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.info({ root }, 'Watching for changes');
     } catch (error) {
       // Recursive watching is unsupported on some platforms and filesystems, and
       // a missing feature must not stop the app from indexing on demand.
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.warn({ err: error, root }, 'Could not watch this folder');
     }
   }
 
   unwatchRoot(root: string): void {
-    const timer = this.timers.get(root);
-    if (timer) clearTimeout(timer);
+    // `clearTimeout(undefined)` is a no-op, so there is nothing to branch on.
+    clearTimeout(this.timers.get(root));
     this.timers.delete(root);
+    // Stryker disable next-line CallExpression: releasing the OS handle has no
+    // effect this process can observe — every later path already checks the map.
     this.watchers.get(root)?.close();
     this.watchers.delete(root);
   }
 
   /** Restarts the quiet period; a burst of saves costs one re-index, not twenty. */
   private schedule(root: string): void {
-    const existing = this.timers.get(root);
-    if (existing) clearTimeout(existing);
+    clearTimeout(this.timers.get(root));
 
     const timer = setTimeout(() => {
+      // Stryker disable next-line CallExpression: tidiness only — the entry is
+      // per root and the next `schedule` overwrites it, and `clearTimeout` on a
+      // timer that has already fired is a no-op.
       this.timers.delete(root);
       void this.reindex(root);
     }, this.config.indexing.watchDebounceMs);
     // The watcher must never be the reason a `docker stop` hangs.
+    // Stryker disable next-line CallExpression: only observable in a process that
+    // is trying to exit, which no in-process test is.
     timer.unref();
     this.timers.set(root, timer);
   }
 
   private async reindex(root: string): Promise<void> {
+    // Unreachable as things stand — both shutdown and removal clear the timer
+    // that would have got here — and kept because it is the assertion that makes
+    // that true, rather than something a reader has to reconstruct.
+    // Stryker disable next-line all: see docs/testing.md#unreachable-guards
     if (this.stopped || !this.watchers.has(root)) return;
 
     try {
@@ -106,6 +125,7 @@ export class IndexWatcherService implements OnModuleInit, OnModuleDestroy {
       // A job is already running — very likely this same root. Wait it out rather
       // than dropping the change, or an edit made mid-index is never picked up.
       this.schedule(root);
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
       this.logger.debug({ err: error, root }, 'Re-index deferred; another job is running');
     }
   }
@@ -120,6 +140,8 @@ export const isInteresting = (filename: string): boolean => {
   const segments = filename.split(sep);
   if (segments.some((segment) => DEFAULT_IGNORED_DIRECTORIES.has(segment))) return false;
 
+  // Stryker disable next-line StringLiteral: `split` never returns an empty array,
+  // so the fallback is unreachable.
   const last = segments.at(-1) ?? '';
   // A rename event can name a directory, which has no extension and may well
   // contain files worth indexing.

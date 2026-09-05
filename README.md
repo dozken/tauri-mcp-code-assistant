@@ -352,7 +352,7 @@ esbuild does not emit `design:paramtypes`, so any test that boots the Nest conta
 fails to resolve constructor dependencies — the same reason `nest start` uses the SWC
 builder. That one plugin is what makes `test/*.e2e.spec.ts` possible.
 
-**Mutation testing** runs on demand and nightly, never on a PR — it takes tens of
+**Mutation testing** runs on demand and weekly, never on a PR — it takes tens of
 minutes. It is the check that grades the other checks: coverage says a line ran,
 Stryker says a test would have _noticed_. Every number below moved because reading the
 survivor list produced work worth doing.
@@ -550,6 +550,30 @@ What it does **not** do yet, and would need before shipping:
 - **Nothing is signed.** There is no release workflow producing notarised installers, so there is no
   supply chain from this repo to a user's machine yet.
 
+## Releasing
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: the full gate first — a tag can
+be pushed at any commit, including one CI never saw — then desktop bundles on all three
+platforms, attached to a **draft** release for a human to look over before anyone
+downloads them. macOS builds universal, so Apple silicon and Intel both get a binary.
+
+Signing is by secret, and every one of them is optional: a missing secret produces an
+unsigned bundle rather than a failed release.
+
+| Secret                                                                      | Gives you                          |
+| --------------------------------------------------------------------------- | ---------------------------------- |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`           | Signed update artefacts            |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | A macOS build Gatekeeper will open |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`                               | Notarisation on top of that        |
+
+Generate the updater key with `npm run tauri -w app -- signer generate -w ~/.tauri/companion.key`.
+
+> **The bundle is the UI shell.** It expects the backend on `127.0.0.1:3001` and does not
+> start one; `COMPANION_BACKEND_URL` points the window somewhere else. Shipping the backend
+> as a Tauri sidecar is the obvious next step and is not done: `sqlite3` is a native module,
+> and a single-file Node build that keeps it working is a piece of work in its own right
+> rather than a flag.
+
 ## Plugins
 
 Extension points are named services in a small runtime under `backend/src/plugins/`,
@@ -598,6 +622,7 @@ Three rules the runtime enforces, and one it does not:
 
 ### Known limitations
 
+- The desktop bundle does not start the backend; it expects one on `127.0.0.1:3001`.
 - Watching uses `fs.watch` with `recursive: true`, which not every platform and filesystem
   supports; where it is missing the app says so and falls back to indexing on request.
 - The rate limit is a per-route fuse, not a per-caller quota: every request comes from the

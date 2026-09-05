@@ -27,7 +27,7 @@ Three things came out of the last full run, and they are the pattern to follow:
 
 Project-wide, last measured: contracts 81%, backend 84%, app 88%, in about forty minutes.
 The `break` threshold in each `stryker.config.json` sits a few points under that, so ordinary
-churn passes and a real regression fails the nightly job.
+churn passes and a real regression fails the weekly job.
 
 The app started at 72%, and the gap was not where it looked. Sorting its survivors put 199 of
 308 in logic and only 109 in `sx` props — the Markdown parser alone accounted for 69, with no
@@ -68,6 +68,14 @@ and the mutant that empties `forEach`'s callback makes `Object.fromEntries` thro
 single test runs. Injected, the file reports "no tests" and every one of its 53 tests errors —
 about as killed as a mutant can be. The report calls it survived, because no test completed to
 be counted.
+
+One more mechanical trap, worth knowing before it costs an hour: `// Stryker disable
+next-line` reaches the line after the comment, and for a mutant deep inside a call's
+arguments — a `useEffect` dependency array, say — that is not where Stryker records the
+mutant. The directive is accepted, does nothing, and the mutant is reported as survived.
+The region form (`// Stryker disable X` … `// Stryker restore X`) around the whole
+statement works. Also: with a wrapped comment, put the directive on its **last** line,
+because each `//` line is its own comment node.
 
 So: **triage a survivor by injecting it, not by trusting the row.** Assert the injection
 actually matched the source first — a `replace` that silently finds nothing produces a

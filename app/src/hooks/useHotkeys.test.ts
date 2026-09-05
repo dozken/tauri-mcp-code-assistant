@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { hotkeyLabel, useHotkeys, IS_APPLE, type Hotkey } from './useHotkeys';
+import { hotkeyLabel, isApplePlatform, useHotkeys, IS_APPLE, type Hotkey } from './useHotkeys';
 
 /** The modifier this platform actually sends, so the tests read the same on both. */
 const mod = IS_APPLE ? { metaKey: true } : { ctrlKey: true };
@@ -33,6 +33,16 @@ describe('useHotkeys', () => {
     expect(run).toHaveBeenCalledOnce();
     // Unswallowed, the browser's own ⌘K wins and the app looks broken.
     expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('ignores a different key with the same modifier', () => {
+    renderHook(() => {
+      useHotkeys([{ key: 'k', mod: true, run }]);
+    });
+
+    press({ key: 'j', ...mod });
+
+    expect(run).not.toHaveBeenCalled();
   });
 
   it('ignores the same key without its modifier, so typing still works', () => {
@@ -136,15 +146,34 @@ describe('useHotkeys', () => {
   });
 });
 
+describe('isApplePlatform', () => {
+  it.each([
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', true],
+    ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', true],
+    ['Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)', true],
+    ['Mozilla/5.0 (iPod touch; CPU iPhone OS 17_0 like Mac OS X)', true],
+    ['Mozilla/5.0 (X11; Linux x86_64)', false],
+    ['Mozilla/5.0 (Windows NT 10.0; Win64; x64)', false],
+  ] as const)('reads %s', (userAgent, expected) => {
+    expect(isApplePlatform(userAgent)).toBe(expected);
+  });
+});
+
 describe('hotkeyLabel', () => {
-  it('writes the platform’s own modifier', () => {
-    expect(hotkeyLabel({ key: 'k', mod: true })).toBe(IS_APPLE ? '⌘K' : 'Ctrl+K');
+  // Both spellings, from whichever platform happens to be running the tests: the
+  // other one is what actually ships to half the users.
+  it('writes ⌘ on a Mac and Ctrl elsewhere', () => {
+    expect(hotkeyLabel({ key: 'k', mod: true }, true)).toBe('⌘K');
+    expect(hotkeyLabel({ key: 'k', mod: true }, false)).toBe('Ctrl+K');
   });
 
-  it('includes shift, written the way the platform writes it', () => {
-    expect(hotkeyLabel({ key: 'o', mod: true, shift: true })).toBe(
-      IS_APPLE ? '⌘⇧O' : 'Ctrl+Shift+O',
-    );
+  it('writes shift the way each platform writes it', () => {
+    expect(hotkeyLabel({ key: 'o', mod: true, shift: true }, true)).toBe('⌘⇧O');
+    expect(hotkeyLabel({ key: 'o', mod: true, shift: true }, false)).toBe('Ctrl+Shift+O');
+  });
+
+  it('defaults to the platform it is running on', () => {
+    expect(hotkeyLabel({ key: 'k', mod: true })).toBe(IS_APPLE ? '⌘K' : 'Ctrl+K');
   });
 
   it('names a key that has a name, rather than shouting it', () => {
