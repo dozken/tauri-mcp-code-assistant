@@ -25,9 +25,17 @@ Three things came out of the last full run, and they are the pattern to follow:
 
 ### The score is a floor, not a measurement
 
-Project-wide, last measured: contracts 81%, backend 84%, app 72%, in about forty minutes.
+Project-wide, last measured: contracts 81%, backend 84%, app 80%, in about forty minutes.
 The `break` threshold in each `stryker.config.json` sits a few points under that, so ordinary
 churn passes and a real regression fails the nightly job.
+
+The app started at 72%, and the gap was not where it looked. Sorting its survivors put 199 of
+308 in logic and only 109 in `sx` props — the Markdown parser alone accounted for 69, with no
+styling among them. Presentation is the part that stays untested on purpose: a test asserting
+`mb: 1` guards nothing and freezes the design against ordinary CSS edits. The exception is a
+style that carries meaning. `MessageBubble` paints the two speakers differently, and that is
+checked against the palette, because both bubbles rendering the same is a real defect no
+role-based assertion can see.
 
 A floor, because **Stryker reports some mutants as survived that the suite does kill.** Two
 were verified by hand — `filesSkipped += 1` flipped to `-=`, and `.digest('hex')` to
