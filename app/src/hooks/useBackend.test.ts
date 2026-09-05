@@ -476,3 +476,34 @@ describe('useBackend paths the transcript depends on', () => {
     expect(message.includes('different versions')).toBe(hints);
   });
 });
+
+describe('useBackend cancelling a turn', () => {
+  beforeEach(() => {
+    useAppStore.setState({ ...initialState, messages: [] });
+    socket.emitted.length = 0;
+  });
+
+  it('asks the backend to abort the turn in flight', () => {
+    const { result } = renderHook(() => useBackend());
+    act(() => {
+      useAppStore.getState().beginAssistantMessage();
+    });
+
+    act(() => {
+      result.current.cancelMessage();
+    });
+
+    expect(socket.emitted.map((entry) => entry.event)).toEqual([SOCKET_EVENTS.chatCancel]);
+  });
+
+  it('says nothing when there is no turn to cancel', () => {
+    // Otherwise a stray click aborts whatever the *next* turn turns out to be.
+    const { result } = renderHook(() => useBackend());
+
+    act(() => {
+      result.current.cancelMessage();
+    });
+
+    expect(socket.emitted).toEqual([]);
+  });
+});

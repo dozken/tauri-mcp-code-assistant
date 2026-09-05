@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import BuildIcon from '@mui/icons-material/Build';
 import { Markdown } from '../markdown/Markdown';
+import { CopyButton } from '../markdown/CopyButton';
 import * as styles from './MessageBubble.styles';
 import type { ChatMessage } from '../types';
 
@@ -58,6 +59,16 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
           <Typography variant="body2" color="text.secondary">
             Thinking…
           </Typography>
+        ) : null}
+
+        {/*
+          Only on a finished assistant answer: mid-stream it would copy half a
+          reply, and the user's own message is already in their clipboard history.
+        */}
+        {message.role === 'assistant' && !message.streaming && message.content !== '' ? (
+          <Box sx={styles.answerActions}>
+            <CopyButton value={message.content} label="answer" />
+          </Box>
         ) : null}
 
         {message.error ? (

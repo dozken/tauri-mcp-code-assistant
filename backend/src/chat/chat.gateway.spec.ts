@@ -100,8 +100,41 @@ describe('ChatGateway', () => {
     release();
     await turn;
 
-    // 'b' was produced after the abort, so it must never reach the client.
-    expect(emit).toHaveBeenCalledTimes(1);
+    // 'b' was produced after the abort, so it must never reach the client — but a
+    // terminal event must, or the client waits forever for an end that never comes.
+    const [names, payloads] = [
+      emit.mock.calls.map(([name]) => name),
+      emit.mock.calls.map(([, payload]) => payload),
+    ];
+    expect(names).toEqual([SOCKET_EVENTS.chatToken, SOCKET_EVENTS.chatDone]);
+    expect(payloads.at(-1)).toMatchObject({ type: 'done', message: 'a' });
+  });
+
+  it('hands back what did stream before the stop, because stopping is not a failure', async () => {
+    const { client, emit } = fakeClient();
+    let release = (): void => {};
+    const gateway = makeGateway(async function* () {
+      yield token('half an ');
+      yield token('answer');
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      yield token(' never seen');
+    });
+
+    const turn = gateway.onChat(request, client);
+    await vi.waitFor(() => {
+      expect(emit).toHaveBeenCalledTimes(2);
+    });
+    gateway.onCancel(client);
+    release();
+    await turn;
+
+    // The transcript keeps the partial answer rather than an error the user caused.
+    expect(emit.mock.calls.at(-1)?.[1]).toMatchObject({
+      type: 'done',
+      message: 'half an answer',
+    });
   });
 
   it('reports nothing to cancel when no turn is running', () => {
@@ -111,6 +144,34 @@ describe('ChatGateway', () => {
     });
 
     expect(gateway.onCancel(client)).toEqual({ cancelled: false });
+  });
+
+  it('stays silent when a turn is replaced rather than stopped', async () => {
+    // The replacement is already streaming into the same client; a `done` from the
+    // turn it displaced would end the new one early.
+    const { client, emit } = fakeClient();
+    // One gate per turn: a single shared resolver would only ever release the
+    // second generator, and the first would hang for the whole test timeout.
+    const gates: (() => void)[] = [];
+    const gateway = makeGateway(async function* () {
+      yield token('first');
+      await new Promise<void>((resolve) => gates.push(resolve));
+      yield token('never');
+    });
+
+    const first = gateway.onChat(request, client);
+    await vi.waitFor(() => {
+      expect(gates).toHaveLength(1);
+    });
+
+    const second = gateway.onChat(request, client);
+    await vi.waitFor(() => {
+      expect(gates).toHaveLength(2);
+    });
+    for (const open of gates) open();
+    await Promise.all([first, second]);
+
+    expect(emit.mock.calls.filter(([name]) => name === SOCKET_EVENTS.chatDone)).toHaveLength(0);
   });
 
   it('aborts the previous turn when the user sends again', async () => {

@@ -73,11 +73,27 @@ describe('MessageBubble', () => {
   });
 
   it('renders no tool section markup at all when the list is empty', () => {
-    // `queryByText` alone passes even when an empty accordion renders; the button
-    // is what the user sees and what a keyboard lands on.
+    // `queryByText` alone passes even when an empty accordion renders; the expand
+    // control is what the user sees and what a keyboard lands on. Scoped to that
+    // control rather than "no buttons", because the answer carries a copy button.
     renderBubble(message());
 
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { expanded: false })).not.toBeInTheDocument();
+  });
+
+  it('offers to copy a finished answer, but not a half-streamed one', () => {
+    const { unmount } = renderBubble(message({ content: 'partial', streaming: true }));
+    expect(screen.queryByTestId('copy-answer')).not.toBeInTheDocument();
+    unmount();
+
+    renderBubble(message({ content: 'the whole answer' }));
+    expect(screen.getByTestId('copy-answer')).toBeInTheDocument();
+  });
+
+  it('does not offer to copy the user their own message back', () => {
+    renderBubble(message({ role: 'user', content: 'a question' }));
+
+    expect(screen.queryByTestId('copy-answer')).not.toBeInTheDocument();
   });
 
   it('paints the user bubble in the accent, and the assistant one on paper', () => {

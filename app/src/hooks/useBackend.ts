@@ -163,6 +163,16 @@ export const useBackend = () => {
     });
   }, []);
 
+  /**
+   * The backend has always been able to stop a turn — `chat:cancel` aborts the
+   * signal the model and its tools are already listening on. Nothing in the UI
+   * reached it, so a wrong answer streamed to the end while the user watched.
+   */
+  const cancelMessage = useCallback(() => {
+    if (!useAppStore.getState().isStreaming) return;
+    getSocket().emit(SOCKET_EVENTS.chatCancel, {});
+  }, []);
+
   const indexFolder = useCallback(
     async (path: string) => {
       const store = useAppStore.getState();
@@ -176,5 +186,5 @@ export const useBackend = () => {
     [refreshStatus],
   );
 
-  return { sendMessage, indexFolder, refreshStatus };
+  return { sendMessage, cancelMessage, indexFolder, refreshStatus };
 };

@@ -1,6 +1,8 @@
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import * as styles from './Markdown.styles';
+import * as copyStyles from './CopyButton.styles';
+import { CopyButton } from './CopyButton';
 import { parseBlocks, type Block, type Inline } from './parse';
 
 export interface MarkdownProps {
@@ -53,17 +55,25 @@ const renderBlock = (block: Block, index: number) => {
   switch (block.kind) {
     case 'codeBlock': {
       return (
-        <Box
-          key={key}
-          component="pre"
-          // Focusable and labelled: a snippet that scrolls sideways has to be
-          // reachable without a mouse.
-          tabIndex={0}
-          role="region"
-          aria-label={block.language ? `${block.language} code snippet` : 'Code snippet'}
-          sx={styles.codeBlock}
-        >
-          <code>{block.content}</code>
+        <Box key={key} sx={copyStyles.anchor}>
+          <Box sx={copyStyles.corner}>
+            <CopyButton
+              value={block.content}
+              label="snippet"
+              className={copyStyles.REVEAL_ON_HOVER}
+            />
+          </Box>
+          <Box
+            component="pre"
+            // Focusable and labelled: a snippet that scrolls sideways has to be
+            // reachable without a mouse.
+            tabIndex={0}
+            role="region"
+            aria-label={block.language ? `${block.language} code snippet` : 'Code snippet'}
+            sx={styles.codeBlock}
+          >
+            <code>{block.content}</code>
+          </Box>
         </Box>
       );
     }

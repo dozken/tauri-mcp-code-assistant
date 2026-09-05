@@ -201,8 +201,16 @@ export class ChatService {
 
       yield { type: 'done', conversationId, message: answer, toolCalls };
     } catch (error) {
-      // Stryker disable next-line all: log payload — see docs/testing.md#logging
-      this.logger.error({ err: error, conversationId }, 'Chat failed');
+      // A turn the caller ended — Stop, or the window closing — is not a failure.
+      // It arrives here as an abort the model layer rethrew, and logging it at
+      // error level buries the real failures under a stack trace per cancelled
+      // turn. Closing a tab used to write one.
+      if (signal?.aborted) {
+        this.logger.debug({ conversationId }, 'Chat turn ended by the caller');
+      } else {
+        // Stryker disable next-line all: log payload — see docs/testing.md#logging
+        this.logger.error({ err: error, conversationId }, 'Chat failed');
+      }
       yield { type: 'error', conversationId, error: this.describeFailure(error, deadline.signal) };
     } finally {
       deadline.done();

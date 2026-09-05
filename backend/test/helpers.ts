@@ -21,7 +21,7 @@ export const silentLogger = (): PinoLogger => {
 };
 
 export interface LoggedLine {
-  readonly level: 'info' | 'warn' | 'error';
+  readonly level: 'debug' | 'info' | 'warn' | 'error';
   readonly payload: Record<string, unknown>;
   readonly message: string;
 }
@@ -47,10 +47,10 @@ export const recordingLogger = (): PinoLogger & { lines: LoggedLine[] } => {
   return {
     lines,
     trace: noop,
-    debug: noop,
     fatal: noop,
     setContext: noop,
     assign: noop,
+    debug: record('debug'),
     info: record('info'),
     warn: record('warn'),
     error: record('error'),

@@ -5,7 +5,8 @@ import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
 import { McpToolsService } from '../mcp/mcp-tools.service.js';
 import { StubChatModel } from '../llm/stub-chat-model.js';
-import { silentLogger, testConfig } from '../../test/helpers.js';
+import { recordingLogger, silentLogger, testConfig } from '../../test/helpers.js';
+import type { PinoLogger } from 'nestjs-pino';
 import { ChatService, ChatTimeoutError } from './chat.service.js';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { AIMessage, AIMessageChunk } from '@langchain/core/messages';
@@ -13,7 +14,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ChatStreamEvent } from '@ai-code-companion/contracts';
 
 const buildChatService = async (
-  overrides: { timeoutMs?: number; tokenDelayMs?: number } = {},
+  overrides: { timeoutMs?: number; tokenDelayMs?: number; logger?: PinoLogger } = {},
 ): Promise<{ chat: ChatService; store: MemoryVectorStore }> => {
   const store = new MemoryVectorStore(new HashingEmbeddings({ dimensions: 128 }));
   await store.upsert([
@@ -42,7 +43,10 @@ const buildChatService = async (
   // 0 ms per token keeps the test fast without changing the streaming code path.
   const model = new StubChatModel({ tokenDelayMs: overrides.tokenDelayMs ?? 0 });
 
-  return { chat: new ChatService(model, mcpTools, config, silentLogger()), store };
+  return {
+    chat: new ChatService(model, mcpTools, config, overrides.logger ?? silentLogger()),
+    store,
+  };
 };
 
 const collect = async (events: AsyncGenerator<ChatStreamEvent>): Promise<ChatStreamEvent[]> => {
@@ -478,6 +482,43 @@ describe('ChatService deadline', () => {
     const last = events.at(-1);
     expect(last?.type).toBe('error');
     expect(JSON.stringify(last)).not.toContain('did not answer within');
+  });
+
+  it('does not log a caller cancel as a failure', async () => {
+    // Closing the window aborts the turn, which the model layer rethrows as an
+    // error. Logging that at error level meant every closed tab left a stack
+    // trace in the log, and the failures worth reading were buried among them.
+    const logger = recordingLogger();
+    const { chat } = await buildChatService({ timeoutMs: 60_000, tokenDelayMs: 20, logger });
+    const controller = new AbortController();
+
+    let seen = 0;
+    for await (const _event of chat.stream(
+      { message: 'where do we authenticate?' },
+      controller.signal,
+    )) {
+      seen += 1;
+      if (seen === 1) controller.abort('cancelled');
+    }
+
+    expect(logger.lines.filter((line) => line.level === 'error')).toEqual([]);
+    expect(logger.lines.map((line) => line.message)).toContain('Chat turn ended by the caller');
+  });
+
+  it('still logs a genuine failure as one', async () => {
+    const logger = recordingLogger();
+    const { chat } = await buildChatService({ logger });
+    vi.spyOn(chat as unknown as { buildMessages: () => never }, 'buildMessages').mockImplementation(
+      () => {
+        throw new Error('the model layer fell over');
+      },
+    );
+
+    await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(
+      logger.lines.filter((line) => line.level === 'error').map((line) => line.message),
+    ).toEqual(['Chat failed']);
   });
 
   it('completes normally when the model is comfortably inside the deadline', async () => {

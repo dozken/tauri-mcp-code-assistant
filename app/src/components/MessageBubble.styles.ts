@@ -57,3 +57,10 @@ export const toolOutput: SxProps<Theme> = {
 };
 
 export const errorAlert: SxProps<Theme> = { mt: 1 };
+
+/** Right-aligned under the answer, so it never sits between the text and the eye. */
+export const answerActions: SxProps<Theme> = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  mt: 0.5,
+};

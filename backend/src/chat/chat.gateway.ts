@@ -18,6 +18,15 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ChatService } from './chat.service.js';
 
 /** Maps a stream event onto its socket name, so a rename cannot silently orphan a listener. */
+/**
+ * Why a turn was aborted, because the two cases owe the client different things.
+ * A replaced turn must go quiet — its events would bleed into the one that took
+ * its place. A cancelled turn must say so, or the client waits forever for an end
+ * that is never coming: the composer stays stuck on Stop and nothing can be sent.
+ */
+const CANCELLED = 'cancelled';
+const REPLACED = 'replaced';
+
 const STREAM_EVENT_NAMES: Record<ChatStreamEvent['type'], string> = {
   token: SOCKET_EVENTS.chatToken,
   tool: SOCKET_EVENTS.chatTool,
@@ -43,21 +52,35 @@ export class ChatGateway implements OnGatewayDisconnect {
     @MessageBody(new ZodValidationPipe(chatRequestSchema)) payload: ChatRequest,
     @ConnectedSocket() client: Socket,
   ): Promise<void> {
-    this.abort(client.id);
+    this.abort(client.id, REPLACED);
 
     const controller = new AbortController();
     this.inFlight.set(client.id, controller);
+    const conversationId = payload.conversationId ?? '';
+    // Accumulated as it is forwarded, so a stop can hand back what did arrive.
+    let answer = '';
 
     try {
       for await (const event of this.chat.stream(payload, controller.signal)) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) break;
+        if (event.type === 'token') answer += event.token;
         client.emit(STREAM_EVENT_NAMES[event.type], event);
+      }
+
+      // Stopping is not a failure: what streamed before the stop is the answer.
+      if (controller.signal.reason === CANCELLED) {
+        client.emit(SOCKET_EVENTS.chatDone, {
+          type: 'done',
+          conversationId,
+          message: answer,
+          toolCalls: [],
+        });
       }
     } catch (error) {
       this.logger.error({ err: error }, 'Chat stream crashed');
       client.emit(SOCKET_EVENTS.chatError, {
         type: 'error',
-        conversationId: payload.conversationId ?? '',
+        conversationId,
         error: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -67,17 +90,18 @@ export class ChatGateway implements OnGatewayDisconnect {
 
   @SubscribeMessage(SOCKET_EVENTS.chatCancel)
   onCancel(@ConnectedSocket() client: Socket): CancelChatResponse {
-    return { cancelled: this.abort(client.id) };
+    return { cancelled: this.abort(client.id, CANCELLED) };
   }
 
   handleDisconnect(client: Socket): void {
-    this.abort(client.id);
+    // Nobody left to tell, so this is the silent kind.
+    this.abort(client.id, REPLACED);
   }
 
-  private abort(clientId: string): boolean {
+  private abort(clientId: string, reason: typeof CANCELLED | typeof REPLACED): boolean {
     const controller = this.inFlight.get(clientId);
     if (!controller) return false;
-    controller.abort();
+    controller.abort(reason);
     this.inFlight.delete(clientId);
     return true;
   }

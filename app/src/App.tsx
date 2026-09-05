@@ -25,7 +25,7 @@ export const App = () => {
   const compact = useMediaQuery(theme.breakpoints.down('md'));
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const { sendMessage, indexFolder, refreshStatus } = useBackend();
+  const { sendMessage, cancelMessage, indexFolder, refreshStatus } = useBackend();
   const connected = useAppStore((state) => state.connected);
   const vectorStore = useAppStore((state) => state.vectorStore);
   const totalChunks = useAppStore((state) => state.totalChunks);
@@ -102,7 +102,7 @@ export const App = () => {
       <Box component="main" sx={styles.main}>
         <Toolbar variant="dense" />
         <Box sx={styles.chatArea}>
-          <ChatPanel onSend={sendMessage} />
+          <ChatPanel onSend={sendMessage} onCancel={cancelMessage} />
         </Box>
       </Box>
     </Box>
