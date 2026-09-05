@@ -14,6 +14,14 @@ import { CopyButton } from '../markdown/CopyButton';
 import * as styles from './MessageBubble.styles';
 import type { ChatMessage } from '../types';
 
+/**
+ * Built once. `Intl.DateTimeFormat` is expensive to construct and this renders on
+ * every streamed token; `undefined` locale means the reader's own, which is the
+ * only correct answer for a clock.
+ */
+const CLOCK = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+const FULL = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+
 export interface MessageBubbleProps {
   message: ChatMessage;
 }
@@ -61,15 +69,29 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
           </Typography>
         ) : null}
 
-        {/*
-          Only on a finished assistant answer: mid-stream it would copy half a
-          reply, and the user's own message is already in their clipboard history.
-        */}
-        {message.role === 'assistant' && !message.streaming && message.content !== '' ? (
-          <Box sx={styles.answerActions}>
+        <Box sx={styles.footer}>
+          {/*
+            A real `<time>`: the machine-readable value is the one a screen reader
+            and a future export both want, and the short label is for the eye.
+          */}
+          <Typography
+            component="time"
+            variant="caption"
+            sx={styles.time[message.role]}
+            dateTime={new Date(message.createdAt).toISOString()}
+            title={FULL.format(message.createdAt)}
+            data-testid="message-time"
+          >
+            {CLOCK.format(message.createdAt)}
+          </Typography>
+          {/*
+            Copy only on a finished assistant answer: mid-stream it would copy half
+            a reply, and the user's own message is already in their clipboard.
+          */}
+          {message.role === 'assistant' && !message.streaming && message.content !== '' ? (
             <CopyButton value={message.content} label="answer" />
-          </Box>
-        ) : null}
+          ) : null}
+        </Box>
 
         {message.error ? (
           <Alert severity="error" sx={styles.errorAlert} variant="outlined">

@@ -229,6 +229,75 @@ describe('ChatPanel stopping a turn', () => {
   });
 });
 
+describe('ChatPanel answers the keyboard', () => {
+  beforeEach(() => {
+    useAppStore.setState({ ...initialState, messages: [], connected: true });
+  });
+
+  /** The modifier this platform sends, so the test reads the same on both. */
+  const mod = navigator.userAgent.includes('Mac') ? '{Meta>}' : '{Control>}';
+  const unmod = navigator.userAgent.includes('Mac') ? '{/Meta}' : '{/Control}';
+
+  it('jumps to the composer from anywhere in the app', async () => {
+    const user = userEvent.setup();
+    renderPanel(vi.fn());
+    // Focus starts somewhere else entirely: the transcript is focusable too.
+    screen.getByTestId('message-list').focus();
+
+    await user.keyboard(`${mod}k${unmod}`);
+
+    expect(screen.getByTestId('chat-input')).toHaveFocus();
+  });
+
+  it('stops a running turn on Escape, and leaves Escape alone otherwise', async () => {
+    const onCancel = vi.fn();
+    const user = userEvent.setup();
+    renderPanel(vi.fn(), onCancel);
+
+    await user.keyboard('{Escape}');
+    expect(onCancel).not.toHaveBeenCalled();
+
+    act(() => useAppStore.getState().beginAssistantMessage());
+    await user.keyboard('{Escape}');
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('starts a new chat', async () => {
+    const user = userEvent.setup();
+    renderPanel(vi.fn());
+    act(() => {
+      useAppStore.getState().addUserMessage('a question');
+    });
+
+    await user.keyboard(`${mod}{Shift>}O{/Shift}${unmod}`);
+
+    expect(useAppStore.getState().messages).toHaveLength(0);
+  });
+
+  it('hands the keystroke back when there is no chat to clear', () => {
+    // Swallowing a shortcut that does nothing is worse than not binding it: the
+    // browser's or the OS's own ⌘⇧O silently stops working.
+    renderPanel(vi.fn());
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'O',
+      shiftKey: true,
+      metaKey: navigator.userAgent.includes('Mac'),
+      ctrlKey: !navigator.userAgent.includes('Mac'),
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('says how to reach the composer before anyone has typed anything', () => {
+    renderPanel(vi.fn());
+
+    expect(screen.getByTestId('shortcut-hint')).toBeInTheDocument();
+  });
+});
+
 describe('ChatPanel follows the stream only when the reader is at the bottom', () => {
   /**
    * jsdom lays nothing out, so every scroll property is 0. Defining them on the

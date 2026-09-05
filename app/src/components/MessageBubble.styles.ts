@@ -1,6 +1,26 @@
+import { keyframes } from '@mui/material/styles';
 import type { SxProps, Theme } from '@mui/material/styles';
 import type { ChatMessage } from '../types';
 import { MONOSPACE } from '../theme/theme';
+
+const rise = keyframes`
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+`;
+
+/**
+ * A message arrives rather than appearing. 180ms is under the threshold where
+ * motion starts to feel like waiting, and it runs on mount only — a re-render per
+ * streamed token does not restart a CSS animation.
+ *
+ * Opt-in via `no-preference`, so a reader who has asked their OS for less motion
+ * gets none rather than a shorter version of it.
+ */
+const arrives = {
+  '@media (prefers-reduced-motion: no-preference)': {
+    animation: `${rise} 180ms ease-out`,
+  },
+};
 
 /**
  * Hoisted out of render. An inline `sx={{…}}` allocates a fresh object every
@@ -11,8 +31,8 @@ import { MONOSPACE } from '../theme/theme';
  * neither can be picked by accident.
  */
 export const row: Record<ChatMessage['role'], SxProps<Theme>> = {
-  user: { justifyContent: 'flex-end' },
-  assistant: { justifyContent: 'flex-start' },
+  user: { justifyContent: 'flex-end', ...arrives },
+  assistant: { justifyContent: 'flex-start', ...arrives },
 };
 
 /**
@@ -58,9 +78,29 @@ export const toolOutput: SxProps<Theme> = {
 
 export const errorAlert: SxProps<Theme> = { mt: 1 };
 
-/** Right-aligned under the answer, so it never sits between the text and the eye. */
-export const answerActions: SxProps<Theme> = {
+/**
+ * The quiet line under a message: its time on the left, its actions on the right.
+ * Under, never beside — nothing belongs between the answer and the eye reading it.
+ */
+export const footer: SxProps<Theme> = {
   display: 'flex',
-  justifyContent: 'flex-end',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 1,
   mt: 0.5,
+  minHeight: 28,
+};
+
+/**
+ * The timestamp takes its colour from the bubble it sits in, not from the page.
+ *
+ * `text.secondary` is dark grey, which is right on the assistant's paper and
+ * unreadable on the user's filled accent — where the bubble's own `contrastText`
+ * is the colour MUI guarantees against that background. An `opacity` here to make
+ * it quieter cost 1.5:1 and failed the light-theme axe scan; the caption size does
+ * that job without spending contrast on it.
+ */
+export const time: Record<ChatMessage['role'], SxProps<Theme>> = {
+  user: { color: 'inherit' },
+  assistant: { color: 'text.secondary' },
 };

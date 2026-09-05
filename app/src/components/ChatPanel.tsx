@@ -7,11 +7,13 @@ import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { useAppStore } from '../store/appStore';
+import { hotkeyLabel, useHotkeys, type Hotkey } from '../hooks/useHotkeys';
 import { MessageBubble } from './MessageBubble';
 import * as styles from './ChatPanel.styles';
 
@@ -25,6 +27,14 @@ const PINNED_TO_BOTTOM_PX = 80;
 
 const atBottom = (list: HTMLElement): boolean =>
   list.scrollHeight - list.scrollTop - list.clientHeight <= PINNED_TO_BOTTOM_PX;
+
+/**
+ * The three things a keyboard reaches for mid-conversation. Declared once so the
+ * binding and the label it is written under cannot drift apart.
+ */
+const FOCUS_COMPOSER = { key: 'k', mod: true } as const;
+const NEW_CHAT = { key: 'o', mod: true, shift: true } as const;
+const STOP = { key: 'escape' } as const;
 
 const EXAMPLES = [
   'Where is authentication handled?',
@@ -43,6 +53,7 @@ export const ChatPanel = ({ onSend, onCancel }: ChatPanelProps) => {
   const [draft, setDraft] = useState('');
   const [detached, setDetached] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   /**
    * Whether the reader is still following the end of the transcript.
@@ -72,6 +83,20 @@ export const ChatPanel = ({ onSend, onCancel }: ChatPanelProps) => {
     // next one starts, so the view lurches instead of following.
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' });
   }, [messages]);
+
+  const hotkeys: Hotkey[] = [
+    {
+      ...FOCUS_COMPOSER,
+      run: () => {
+        inputRef.current?.focus();
+      },
+    },
+    { ...NEW_CHAT, enabled: messages.length > 0, run: clearMessages },
+    // Only while something is running: Escape otherwise belongs to whatever the
+    // user has open — a dialog, a menu, an autocomplete.
+    { ...STOP, enabled: isStreaming, run: onCancel },
+  ];
+  useHotkeys(hotkeys);
 
   const submit = (text: string): void => {
     const content = text.trim();
@@ -117,6 +142,11 @@ export const ChatPanel = ({ onSend, onCancel }: ChatPanelProps) => {
                 />
               ))}
             </Stack>
+            {/* Taught here rather than in a menu nobody opens. */}
+            <Typography variant="caption" color="text.secondary" data-testid="shortcut-hint">
+              {hotkeyLabel(FOCUS_COMPOSER)} to focus the message box · Enter to send · Shift+Enter
+              for a new line
+            </Typography>
           </Stack>
         ) : (
           <Stack spacing={1.5}>
@@ -169,6 +199,7 @@ export const ChatPanel = ({ onSend, onCancel }: ChatPanelProps) => {
                 submit(draft);
               }
             }}
+            inputRef={inputRef}
             slotProps={{ htmlInput: { 'data-testid': 'chat-input' } }}
           />
           {/*
@@ -177,24 +208,33 @@ export const ChatPanel = ({ onSend, onCancel }: ChatPanelProps) => {
             dead for the rest of the time.
           */}
           {isStreaming ? (
-            <IconButton
-              color="primary"
-              aria-label="Stop generating"
-              data-testid="stop-button"
-              onClick={onCancel}
-            >
-              <StopIcon />
-            </IconButton>
+            <Tooltip title={`Stop generating (${hotkeyLabel(STOP)})`}>
+              <IconButton
+                color="primary"
+                aria-label="Stop generating"
+                data-testid="stop-button"
+                onClick={onCancel}
+              >
+                <StopIcon />
+              </IconButton>
+            </Tooltip>
           ) : (
-            <IconButton
-              color="primary"
-              aria-label="Send message"
-              data-testid="send-button"
-              disabled={!connected || draft.trim().length === 0}
-              onClick={() => submit(draft)}
-            >
-              <SendIcon />
-            </IconButton>
+            // Wrapped in a span because a disabled button fires no pointer events,
+            // and a tooltip that vanishes exactly when you need the explanation is
+            // worse than none.
+            <Tooltip title="Send message (Enter)">
+              <span>
+                <IconButton
+                  color="primary"
+                  aria-label="Send message"
+                  data-testid="send-button"
+                  disabled={!connected || draft.trim().length === 0}
+                  onClick={() => submit(draft)}
+                >
+                  <SendIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
           )}
         </Stack>
         <Stack direction="row" spacing={1} sx={styles.composerFooter}>
@@ -203,7 +243,9 @@ export const ChatPanel = ({ onSend, onCancel }: ChatPanelProps) => {
           </Typography>
           <Box sx={styles.spacer} />
           {messages.length > 0 && (
-            <Chip size="small" label="Clear chat" variant="outlined" onClick={clearMessages} />
+            <Tooltip title={`New chat (${hotkeyLabel(NEW_CHAT)})`}>
+              <Chip size="small" label="Clear chat" variant="outlined" onClick={clearMessages} />
+            </Tooltip>
           )}
         </Stack>
       </Paper>

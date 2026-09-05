@@ -1,4 +1,10 @@
+import { keyframes } from '@mui/material/styles';
 import type { SxProps, Theme } from '@mui/material/styles';
+
+const fadeUp = keyframes`
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+`;
 
 /** Hoisted out of render: the transcript re-renders on every streamed token. */
 export const panel: SxProps<Theme> = { height: '100%', minWidth: 0 };
@@ -48,4 +54,9 @@ export const jumpAnchor: SxProps<Theme> = {
   height: 0,
 };
 
-export const jumpButton: SxProps<Theme> = { position: 'absolute', bottom: 8, borderRadius: 5 };
+export const jumpButton: SxProps<Theme> = {
+  position: 'absolute',
+  bottom: 8,
+  borderRadius: 5,
+  '@media (prefers-reduced-motion: no-preference)': { animation: `${fadeUp} 140ms ease-out` },
+};

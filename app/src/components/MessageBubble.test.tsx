@@ -51,6 +51,27 @@ describe('MessageBubble', () => {
     expect(block.querySelector('code')).not.toBeNull();
   });
 
+  it('stamps every message with a machine-readable time', () => {
+    // `<time datetime>` rather than a formatted string alone: that is the value a
+    // screen reader announces and the one an export would keep.
+    const at = Date.UTC(2026, 0, 2, 3, 4, 5);
+    renderBubble(message({ content: 'hello', createdAt: at }));
+
+    expect(screen.getByTestId('message-time')).toHaveAttribute(
+      'datetime',
+      new Date(at).toISOString(),
+    );
+  });
+
+  it('shows the time in the reader’s own clock, not a fixed one', () => {
+    const at = Date.UTC(2026, 0, 2, 3, 4, 5);
+    renderBubble(message({ content: 'hello', createdAt: at }));
+
+    expect(screen.getByTestId('message-time')).toHaveTextContent(
+      new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(at),
+    );
+  });
+
   it('shows a thinking placeholder only while empty and streaming', () => {
     const { unmount } = renderBubble(message({ content: '', streaming: true }));
     expect(screen.getByText('Thinking…')).toBeInTheDocument();
@@ -96,6 +117,19 @@ describe('MessageBubble', () => {
     renderBubble(message({ role: 'user', content: 'a question' }));
 
     expect(screen.queryByTestId('copy-answer')).not.toBeInTheDocument();
+  });
+
+  it('reads the timestamp against the bubble it sits in, not against the page', () => {
+    // `text.secondary` is dark grey. On the assistant's paper that is right; on the
+    // user's filled accent it is unreadable, and the light-theme axe scan said so.
+    const { unmount } = renderBubble(message({ role: 'user', content: 'q' }));
+    const user = getComputedStyle(screen.getByTestId('message-time')).color;
+    unmount();
+
+    renderBubble(message({ role: 'assistant', content: 'a' }));
+    const assistant = getComputedStyle(screen.getByTestId('message-time')).color;
+
+    expect(user).not.toBe(assistant);
   });
 
   it('paints the user bubble in the accent, and the assistant one on paper', () => {
