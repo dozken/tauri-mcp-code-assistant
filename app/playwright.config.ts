@@ -55,8 +55,14 @@ export default defineConfig({
   webServer: [
     {
       // The backend runs from dist, so build it first; `npm run build` is a no-op
-      // when nothing changed.
-      command: 'npm run build && node dist/main.js',
+      // when nothing changed. The index is dropped first because it outlives the
+      // run: a folder indexed by `chat.spec.ts` came back as a stale root in the
+      // *next* run's a11y scans, so the suite passed cold and failed warm.
+      command: [
+        `node -e "require('node:fs').rmSync(process.env.METADATA_DB, { force: true })"`,
+        'npm run build',
+        'node dist/main.js',
+      ].join(' && '),
       cwd: backendDir,
       url: 'http://127.0.0.1:3001/health',
       reuseExistingServer: !process.env.CI,

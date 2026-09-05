@@ -27,6 +27,14 @@ const PALETTES = {
     // which the axe scan caught; #0b7f5a is 5.0:1.
     primary: { main: '#3f51c4' },
     secondary: { main: '#0b7f5a' },
+    // MUI's own light warning and info fail AA as text: #ed6c02 is 2.9:1 on the
+    // page and #0288d1 is 3.6:1, both well under the 4.5:1 that 13px chip labels
+    // need. These replacements keep the hue and clear it — see theme.test.ts,
+    // which measures every one of these. Info is not rendered today, but it is
+    // one `color="info"` away from being, and a palette with a hole in it is a
+    // trap rather than a saving.
+    warning: { main: '#a85400' },
+    info: { main: '#01699f' },
     background: { default: '#f6f7f9', paper: '#ffffff' },
   },
 } as const;
