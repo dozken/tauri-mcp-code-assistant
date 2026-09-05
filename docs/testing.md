@@ -25,17 +25,32 @@ Three things came out of the last full run, and they are the pattern to follow:
 
 ### The score is a floor, not a measurement
 
-Project-wide, last measured: contracts 81%, backend 84%, app 80%, in about forty minutes.
+Project-wide, last measured: contracts 81%, backend 84%, app 88%, in about forty minutes.
 The `break` threshold in each `stryker.config.json` sits a few points under that, so ordinary
 churn passes and a real regression fails the nightly job.
 
 The app started at 72%, and the gap was not where it looked. Sorting its survivors put 199 of
 308 in logic and only 109 in `sx` props — the Markdown parser alone accounted for 69, with no
-styling among them. Presentation is the part that stays untested on purpose: a test asserting
-`mb: 1` guards nothing and freezes the design against ordinary CSS edits. The exception is a
-style that carries meaning. `MessageBubble` paints the two speakers differently, and that is
-checked against the palette, because both bubbles rendering the same is a real defect no
-role-based assertion can see.
+styling among them. Testing that logic took it to 80%.
+
+The last eight points came from separating the two rather than testing harder. Style objects
+now live in `<Component>.styles.ts`, which `mutate` excludes, and the components hold logic.
+That is worth doing on its own account: an inline `sx={{…}}` allocates a new object every
+render, so emotion re-serialises rules it has already cached, and the message bubble re-renders
+on every streamed token. The mutation score is the side effect, not the reason — a design token
+can only be "killed" by a test that restates its value, which freezes the design against
+ordinary edits and catches no defect.
+
+Two rules keep the split honest. The palette stays _in_ the mutated half, because a colour can
+be genuinely wrong — too light to read — and `theme.test.ts` measures every one. And a style
+that carries meaning is tested: `MessageBubble` paints the two speakers differently, checked
+against the palette, because both bubbles rendering the same is a real defect no role-based
+assertion can see.
+
+The refactor was verified rather than asserted. The pre-refactor components were checked out,
+the same three views re-shot against the same stubbed backend, and the images diffed: light and
+compact came back pixel-identical, and dark differed by 71 pixels in a 9×9 box — one digit of a
+measured tool-call duration.
 
 A floor, because **Stryker reports some mutants as survived that the suite does kill.** Two
 were verified by hand — `filesSkipped += 1` flipped to `-=`, and `.digest('hex')` to

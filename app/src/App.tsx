@@ -29,15 +29,13 @@ export const App = () => {
   const connected = useAppStore((state) => state.connected);
   const vectorStore = useAppStore((state) => state.vectorStore);
   const totalChunks = useAppStore((state) => state.totalChunks);
+  // One source of truth: the tooltip and the chip colour say the same thing, and
+  // splitting the condition let them drift apart without a test noticing.
+  const persisted = vectorStore === 'chroma';
 
   return (
     <Box sx={styles.shell}>
-      <AppBar
-        position="fixed"
-        color="transparent"
-        elevation={0}
-        sx={styles.appBar[compact ? 'compact' : 'wide']}
-      >
+      <AppBar position="fixed" color="transparent" elevation={0} sx={styles.appBar(compact)}>
         <Toolbar variant="dense" sx={styles.toolbar}>
           {compact ? (
             <IconButton
@@ -58,7 +56,7 @@ export const App = () => {
           <Stack direction="row" spacing={1} sx={styles.statusChips}>
             <Tooltip
               title={
-                vectorStore === 'chroma'
+                persisted
                   ? 'Chunks are persisted in ChromaDB'
                   : 'Chroma is unreachable — using the in-memory store, which is lost on restart'
               }
@@ -66,7 +64,7 @@ export const App = () => {
               <Chip
                 size="small"
                 variant="outlined"
-                color={vectorStore === 'chroma' ? 'secondary' : 'default'}
+                color={persisted ? 'secondary' : 'default'}
                 label={`${vectorStore} · ${totalChunks} chunks`}
               />
             </Tooltip>
@@ -92,7 +90,7 @@ export const App = () => {
         // Keeping the overlay drawer mounted preserves its scroll position and
         // keeps the folder list in the tree for tests at every width.
         ModalProps={{ keepMounted: true }}
-        sx={styles.drawer[compact ? 'compact' : 'wide']}
+        sx={styles.drawer(compact)}
       >
         {/* Spacer only under a permanent drawer; the overlay covers the bar. */}
         {compact ? null : <Toolbar variant="dense" />}
