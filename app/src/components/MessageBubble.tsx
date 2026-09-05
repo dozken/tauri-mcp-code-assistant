@@ -9,8 +9,8 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import BuildIcon from '@mui/icons-material/Build';
-import { MONOSPACE } from '../theme/theme';
 import { Markdown } from '../markdown/Markdown';
+import * as styles from './MessageBubble.styles';
 import type { ChatMessage } from '../types';
 
 export interface MessageBubbleProps {
@@ -18,32 +18,13 @@ export interface MessageBubbleProps {
 }
 
 export const MessageBubble = ({ message }: MessageBubbleProps) => {
-  const isUser = message.role === 'user';
-
   return (
-    <Stack
-      direction="row"
-      sx={{ justifyContent: isUser ? 'flex-end' : 'flex-start' }}
-      data-testid={`message-${message.role}`}
-    >
-      <Paper
-        variant="outlined"
-        sx={{
-          maxWidth: isUser ? '75%' : '92%',
-          px: 2,
-          py: 1.25,
-          // `primary.main` with its own `contrastText`, rather than `primary.dark`
-          // with inherited body text: MUI guarantees that pair meets contrast in
-          // both palettes, and the inherited version was 1.94:1 in light mode.
-          bgcolor: isUser ? 'primary.main' : 'background.paper',
-          color: isUser ? 'primary.contrastText' : 'text.primary',
-          borderColor: isUser ? 'primary.main' : 'divider',
-        }}
-      >
+    <Stack direction="row" sx={styles.row[message.role]} data-testid={`message-${message.role}`}>
+      <Paper variant="outlined" sx={styles.bubble[message.role]}>
         {message.toolCalls.length > 0 && (
-          <Accordion disableGutters elevation={0} sx={{ bgcolor: 'transparent', mb: 1 }}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 0, px: 0 }}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <Accordion disableGutters elevation={0} sx={styles.toolAccordion}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={styles.toolSummary}>
+              <Stack direction="row" spacing={1} sx={styles.toolChips}>
                 <BuildIcon fontSize="small" color="secondary" />
                 {message.toolCalls.map((call, index) => (
                   <Chip
@@ -56,25 +37,13 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
                 ))}
               </Stack>
             </AccordionSummary>
-            <AccordionDetails sx={{ px: 0 }}>
+            <AccordionDetails sx={styles.toolDetails}>
               {message.toolCalls.map((call, index) => (
-                <Box key={`${call.name}-detail-${index}`} sx={{ mb: 1 }}>
+                <Box key={`${call.name}-detail-${index}`} sx={styles.toolEntry}>
                   <Typography variant="caption" color="text.secondary">
                     {call.name}({JSON.stringify(call.args)})
                   </Typography>
-                  <Box
-                    component="pre"
-                    sx={{
-                      m: 0,
-                      p: 1,
-                      fontFamily: MONOSPACE,
-                      fontSize: 12,
-                      maxHeight: 180,
-                      overflow: 'auto',
-                      bgcolor: 'action.hover',
-                      borderRadius: 1,
-                    }}
-                  >
+                  <Box component="pre" sx={styles.toolOutput}>
                     {call.result}
                   </Box>
                 </Box>
@@ -92,7 +61,7 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
         ) : null}
 
         {message.error ? (
-          <Alert severity="error" sx={{ mt: 1 }} variant="outlined">
+          <Alert severity="error" sx={styles.errorAlert} variant="outlined">
             {message.error}
           </Alert>
         ) : null}

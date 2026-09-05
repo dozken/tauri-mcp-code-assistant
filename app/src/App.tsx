@@ -15,8 +15,7 @@ import { useAppStore } from './store/appStore';
 import { useBackend } from './hooks/useBackend';
 import { ChatPanel } from './components/ChatPanel';
 import { Sidebar } from './components/Sidebar';
-
-const SIDEBAR_WIDTH = 300;
+import * as styles from './App.styles';
 
 export const App = () => {
   const theme = useTheme();
@@ -32,21 +31,14 @@ export const App = () => {
   const totalChunks = useAppStore((state) => state.totalChunks);
 
   return (
-    <Box sx={{ display: 'flex', height: '100vh' }}>
+    <Box sx={styles.shell}>
       <AppBar
         position="fixed"
         color="transparent"
         elevation={0}
-        sx={{
-          // Above a permanent drawer, below a temporary one. With the overlay
-          // drawer the scrim must cover the whole app: at drawer+1 the bar was
-          // half bright and half dimmed, and its chips sat at 1.2:1 through the
-          // scrim.
-          zIndex: (theme) => (compact ? theme.zIndex.appBar : theme.zIndex.drawer + 1),
-          backdropFilter: 'blur(8px)',
-        }}
+        sx={styles.appBar[compact ? 'compact' : 'wide']}
       >
-        <Toolbar variant="dense" sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Toolbar variant="dense" sx={styles.toolbar}>
           {compact ? (
             <IconButton
               edge="start"
@@ -55,15 +47,15 @@ export const App = () => {
               onClick={() => {
                 setDrawerOpen(true);
               }}
-              sx={{ mr: 1 }}
+              sx={styles.menuButton}
             >
               <MenuIcon fontSize="small" />
             </IconButton>
           ) : null}
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1 }} noWrap>
+          <Typography variant="subtitle1" sx={styles.title} noWrap>
             AI Code Companion
           </Typography>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+          <Stack direction="row" spacing={1} sx={styles.statusChips}>
             <Tooltip
               title={
                 vectorStore === 'chroma'
@@ -100,23 +92,16 @@ export const App = () => {
         // Keeping the overlay drawer mounted preserves its scroll position and
         // keeps the folder list in the tree for tests at every width.
         ModalProps={{ keepMounted: true }}
-        sx={{
-          width: compact ? 0 : SIDEBAR_WIDTH,
-          flexShrink: 0,
-          [`& .MuiDrawer-paper`]: { width: SIDEBAR_WIDTH, boxSizing: 'border-box' },
-        }}
+        sx={styles.drawer[compact ? 'compact' : 'wide']}
       >
         {/* Spacer only under a permanent drawer; the overlay covers the bar. */}
         {compact ? null : <Toolbar variant="dense" />}
         <Sidebar onIndexFolder={indexFolder} onRefresh={refreshStatus} />
       </Drawer>
 
-      <Box
-        component="main"
-        sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
-      >
+      <Box component="main" sx={styles.main}>
         <Toolbar variant="dense" />
-        <Box sx={{ flex: 1, minHeight: 0 }}>
+        <Box sx={styles.chatArea}>
           <ChatPanel onSend={sendMessage} />
         </Box>
       </Box>

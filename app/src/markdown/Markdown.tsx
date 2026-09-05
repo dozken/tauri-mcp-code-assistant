@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { MONOSPACE } from '../theme/theme';
+import * as styles from './Markdown.styles';
 import { parseBlocks, type Block, type Inline } from './parse';
 
 export interface MarkdownProps {
@@ -25,34 +25,21 @@ const renderInline = (spans: readonly Inline[]) =>
     const key = `${span.kind}-${String(index)}`;
     if (span.kind === 'code') {
       return (
-        <Box
-          key={key}
-          component="code"
-          sx={{
-            fontFamily: MONOSPACE,
-            fontSize: '0.875em',
-            px: 0.5,
-            py: 0.125,
-            borderRadius: 0.75,
-            bgcolor: 'action.hover',
-            // A long identifier must not push the bubble wider than its column.
-            overflowWrap: 'anywhere',
-          }}
-        >
+        <Box key={key} component="code" sx={styles.codeSpan}>
           {span.value}
         </Box>
       );
     }
     if (span.kind === 'strong') {
       return (
-        <Box key={key} component="strong" sx={{ fontWeight: 600 }}>
+        <Box key={key} component="strong" sx={styles.strong}>
           {renderInline(span.children)}
         </Box>
       );
     }
     if (span.kind === 'emphasis') {
       return (
-        <Box key={key} component="em" sx={{ fontStyle: 'italic' }}>
+        <Box key={key} component="em" sx={styles.emphasis}>
           {renderInline(span.children)}
         </Box>
       );
@@ -74,16 +61,7 @@ const renderBlock = (block: Block, index: number) => {
           tabIndex={0}
           role="region"
           aria-label={block.language ? `${block.language} code snippet` : 'Code snippet'}
-          sx={{
-            my: 1,
-            p: 1.5,
-            fontFamily: MONOSPACE,
-            fontSize: 12.5,
-            lineHeight: 1.5,
-            overflowX: 'auto',
-            bgcolor: 'action.hover',
-            borderRadius: 1,
-          }}
+          sx={styles.codeBlock}
         >
           <code>{block.content}</code>
         </Box>
@@ -96,7 +74,7 @@ const renderBlock = (block: Block, index: number) => {
           key={key}
           variant={HEADING_VARIANTS[block.level]}
           component={`h${String(Math.min(block.level + 2, 6))}` as 'h3'}
-          sx={{ mt: index === 0 ? 0 : 1.5, mb: 0.5, fontWeight: 600 }}
+          sx={styles.heading[index === 0 ? 'first' : 'later']}
         >
           {renderInline(block.spans)}
         </Typography>
@@ -105,11 +83,7 @@ const renderBlock = (block: Block, index: number) => {
 
     case 'list': {
       return (
-        <Box
-          key={key}
-          component={block.ordered ? 'ol' : 'ul'}
-          sx={{ my: 0.5, pl: 3, '& li': { mb: 0.25 } }}
-        >
+        <Box key={key} component={block.ordered ? 'ol' : 'ul'} sx={styles.list}>
           {block.items.map((item, itemIndex) => (
             <Typography key={itemIndex} component="li" variant="body2">
               {renderInline(item)}
@@ -121,12 +95,7 @@ const renderBlock = (block: Block, index: number) => {
 
     case 'paragraph': {
       return (
-        <Typography
-          key={key}
-          variant="body2"
-          // Newlines inside one paragraph are meaningful in an answer about code.
-          sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
-        >
+        <Typography key={key} variant="body2" sx={styles.paragraph}>
           {renderInline(block.spans)}
         </Typography>
       );

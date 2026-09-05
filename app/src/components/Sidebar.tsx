@@ -23,7 +23,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { useAppStore } from '../store/appStore';
 import { cancelIndexing, removeRoot } from '../api/http';
 import { getAppInfo, pickFolder, type AppInfo } from '../api/tauri';
-import { MONOSPACE } from '../theme/theme';
+import * as styles from './Sidebar.styles';
 
 export interface SidebarProps {
   onIndexFolder: (path: string) => void | Promise<void>;
@@ -88,12 +88,12 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
   };
 
   return (
-    <Stack sx={{ height: '100%' }}>
-      <Box sx={{ p: 2, pb: 1 }}>
+    <Stack sx={styles.panel}>
+      <Box sx={styles.header}>
         <Typography variant="overline" color="text.secondary">
           Indexed folders
         </Typography>
-        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+        <Stack direction="row" spacing={1} sx={styles.headerActions}>
           <Button
             fullWidth
             variant="contained"
@@ -115,7 +115,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
       </Box>
 
       {activeJob ? (
-        <Box sx={{ px: 2, pb: 1 }} data-testid="index-progress">
+        <Box sx={styles.progress} data-testid="index-progress">
           <Typography variant="caption" color="text.secondary" noWrap>
             Indexing {basename(activeJob.root)} — {activeJob.filesIndexed}/
             {activeJob.filesDiscovered} files, {activeJob.chunksIndexed} chunks
@@ -124,19 +124,15 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
           <LinearProgress
             variant={activeJob.filesDiscovered > 0 ? 'determinate' : 'indeterminate'}
             value={activeJob.percent}
-            sx={{ mt: 0.5 }}
+            sx={styles.progressBar}
           />
-          <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: 'center' }}>
+          <Stack direction="row" spacing={1} sx={styles.progressFooter}>
             {activeJob.currentFile ? (
-              <Typography
-                variant="caption"
-                sx={{ fontFamily: MONOSPACE, flex: 1, minWidth: 0 }}
-                noWrap
-              >
+              <Typography variant="caption" sx={styles.currentFile} noWrap>
                 {activeJob.currentFile}
               </Typography>
             ) : (
-              <Box sx={{ flex: 1 }} />
+              <Box sx={styles.spacer} />
             )}
             <Button size="small" color="inherit" onClick={handleCancel} data-testid="cancel-index">
               Cancel
@@ -147,13 +143,13 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
 
       <Divider />
 
-      <List dense sx={{ flex: 1, overflowY: 'auto', py: 0 }} data-testid="root-list">
+      <List dense sx={styles.rootList} data-testid="root-list">
         {roots.length === 0 && (
           <ListItem>
             <ListItemText
               primary="No folders yet"
               secondary="Add a folder to index it and start asking questions."
-              slotProps={{ secondary: { variant: 'caption' } }}
+              slotProps={styles.emptyStateText}
             />
           </ListItem>
         )}
@@ -182,11 +178,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
                 primary={basename(root.path)}
                 secondary={
                   <>
-                    <Typography
-                      variant="caption"
-                      sx={{ fontFamily: MONOSPACE, display: 'block' }}
-                      noWrap
-                    >
+                    <Typography variant="caption" sx={styles.rootPath} noWrap>
                       {root.path}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
@@ -198,12 +190,12 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
                         color="warning"
                         variant="outlined"
                         label="needs re-index"
-                        sx={{ ml: 1, height: 18 }}
+                        sx={styles.staleChip}
                       />
                     ) : null}
                   </>
                 }
-                slotProps={{ secondary: { component: 'span' } }}
+                slotProps={styles.rootItemText}
               />
             </ListItemButton>
           </ListItem>
@@ -213,7 +205,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
       {appInfo ? (
         <>
           <Divider />
-          <Box sx={{ px: 2, py: 1 }}>
+          <Box sx={styles.footer}>
             <Typography variant="caption" color="text.secondary">
               v{appInfo.version} · {appInfo.platform} · {appInfo.backendUrl}
             </Typography>

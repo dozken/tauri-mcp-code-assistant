@@ -1,4 +1,5 @@
 import { createTheme, type Theme } from '@mui/material/styles';
+import { DESIGN_TOKENS } from './theme.styles';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -40,20 +41,11 @@ const PALETTES = {
 } as const;
 
 export const createAppTheme = (mode: ThemeMode): Theme =>
-  createTheme({
-    palette: { mode, ...PALETTES[mode] },
-    shape: { borderRadius: 10 },
-    typography: {
-      fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-      fontSize: 14,
-    },
-    components: {
-      MuiButton: { defaultProps: { disableElevation: true } },
-    },
-  });
+  createTheme({ ...DESIGN_TOKENS, palette: { mode, ...PALETTES[mode] } });
 
 /** The default used by tests and by any render that does not care about mode. */
 export const theme = createAppTheme('dark');
 
-export const MONOSPACE =
-  'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
+// Re-exported so callers import one thing from one place; it lives with the
+// other design tokens because that is what it is.
+export { MONOSPACE } from './theme.styles';

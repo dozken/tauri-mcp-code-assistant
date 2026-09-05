@@ -10,6 +10,7 @@ import Typography from '@mui/material/Typography';
 import SendIcon from '@mui/icons-material/Send';
 import { useAppStore } from '../store/appStore';
 import { MessageBubble } from './MessageBubble';
+import * as styles from './ChatPanel.styles';
 
 export interface ChatPanelProps {
   onSend: (message: string) => void;
@@ -57,7 +58,7 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
   };
 
   return (
-    <Stack sx={{ height: '100%', minWidth: 0 }}>
+    <Stack sx={styles.panel}>
       <Box
         ref={listRef}
         // A chat transcript is a log: announce new answers, and let a keyboard
@@ -66,25 +67,17 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
         aria-live="polite"
         aria-label="Conversation"
         tabIndex={0}
-        sx={{ flex: 1, overflowY: 'auto', p: 2 }}
+        sx={styles.transcript}
         data-testid="message-list"
       >
         {messages.length === 0 ? (
-          <Stack
-            spacing={2}
-            sx={{ alignItems: 'center', justifyContent: 'center', height: '100%' }}
-          >
+          <Stack spacing={2} sx={styles.emptyState}>
             <Typography variant="h6">Ask something about your codebase</Typography>
             <Typography variant="body2" color="text.secondary">
               Index a folder, then ask a question. Answers are grounded in the snippets retrieved
               from it.
             </Typography>
-            <Stack
-              direction="row"
-              spacing={1}
-              useFlexGap
-              sx={{ flexWrap: 'wrap', justifyContent: 'center' }}
-            >
+            <Stack direction="row" spacing={1} useFlexGap sx={styles.examples}>
               {EXAMPLES.map((example) => (
                 <Chip
                   key={example}
@@ -92,14 +85,7 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
                   variant="outlined"
                   onClick={() => submit(example)}
                   disabled={!connected}
-                  // Without this a chip wider than the column is clipped by the
-                  // viewport instead of wrapping — flex-wrap cannot break one item.
-                  sx={{
-                    maxWidth: '100%',
-                    height: 'auto',
-                    py: 0.5,
-                    '& .MuiChip-label': { whiteSpace: 'normal' },
-                  }}
+                  sx={styles.exampleChip}
                 />
               ))}
             </Stack>
@@ -115,17 +101,13 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
       </Box>
 
       {error ? (
-        <Alert severity="warning" variant="outlined" sx={{ mx: 2, mb: 1 }}>
+        <Alert severity="warning" variant="outlined" sx={styles.errorAlert}>
           {error}
         </Alert>
       ) : null}
 
-      <Paper
-        square
-        variant="outlined"
-        sx={{ p: 1.5, borderLeft: 0, borderRight: 0, borderBottom: 0 }}
-      >
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-end' }}>
+      <Paper square variant="outlined" sx={styles.composer}>
+        <Stack direction="row" spacing={1} sx={styles.composerRow}>
           <TextField
             fullWidth
             multiline
@@ -156,11 +138,11 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
             <SendIcon />
           </IconButton>
         </Stack>
-        <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: 'center' }}>
+        <Stack direction="row" spacing={1} sx={styles.composerFooter}>
           <Typography variant="caption" color="text.secondary">
             {selectedRoot ? `Scoped to ${selectedRoot}` : 'Searching all indexed folders'}
           </Typography>
-          <Box sx={{ flex: 1 }} />
+          <Box sx={styles.spacer} />
           {messages.length > 0 && (
             <Chip size="small" label="Clear chat" variant="outlined" onClick={clearMessages} />
           )}
