@@ -18,6 +18,9 @@ describe('isSensitivePath', () => {
     ['a kubeconfig', 'kubeconfig'],
     ['an SSH private key', 'id_rsa'],
     ['a checked-in secrets file', 'deploy/secrets.yaml'],
+    ['a bare .key dotfile', '.key'],
+    ['a bare .pem dotfile', 'certs/.pem'],
+    ['a bare .keystore dotfile', '.keystore'],
   ])('blocks %s', (_label, path) => {
     expect(isSensitivePath(path)).toBe(true);
   });
@@ -39,6 +42,9 @@ describe('isSensitivePath', () => {
     ['a keyboard handler', 'src/hooks/useKey.ts'],
     ['a monkey-named file', 'src/monkey.ts'],
     ['a readme', 'README.md'],
+    ['a gitignore', '.gitignore'],
+    ['an eslint config', '.eslintrc'],
+    ['an editorconfig', '.editorconfig'],
     ['a lockfile', 'package-lock.json'],
   ])('allows %s', (_label, path) => {
     expect(isSensitivePath(path)).toBe(false);

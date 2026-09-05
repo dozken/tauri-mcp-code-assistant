@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
@@ -88,5 +88,49 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: 'Refresh status' }));
     expect(refreshStatus).toHaveBeenCalled();
+  });
+
+  describe('narrow windows', () => {
+    /** jsdom has no media-query engine; report the compact breakpoint as matching. */
+    const beCompact = (): void => {
+      vi.stubGlobal(
+        'matchMedia',
+        (query: string) =>
+          ({
+            matches: query.includes('max-width'),
+            media: query,
+            addEventListener: () => undefined,
+            removeEventListener: () => undefined,
+            addListener: () => undefined,
+            removeListener: () => undefined,
+            dispatchEvent: () => false,
+            onchange: null,
+          }) as unknown as MediaQueryList,
+      );
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('hides the folder list behind a button instead of a 300px drawer', async () => {
+      beCompact();
+      renderApp();
+
+      // The drawer stays mounted so its scroll position survives, but it is closed.
+      const open = screen.getByRole('button', { name: 'Show indexed folders' });
+      expect(screen.getByTestId('add-folder')).not.toBeVisible();
+
+      await userEvent.click(open);
+
+      expect(screen.getByTestId('add-folder')).toBeVisible();
+    });
+
+    it('offers no menu button at desktop width', () => {
+      renderApp();
+
+      expect(screen.queryByRole('button', { name: 'Show indexed folders' })).toBeNull();
+      expect(screen.getByTestId('add-folder')).toBeVisible();
+    });
   });
 });

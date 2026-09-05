@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatSearchResult, formatSnippetResult } from './formatters.js';
+import { formatExplainResult, formatSearchResult, formatSnippetResult } from './formatters.js';
 import type { SearchCodeResult } from '@ai-code-companion/contracts';
 
 const result = (text: string): SearchCodeResult => ({
@@ -60,5 +60,62 @@ describe('formatSnippetResult', () => {
 
     expect(rendered.startsWith('```typescript\n')).toBe(true);
     expect(rendered.endsWith('Template-generated.')).toBe(true);
+  });
+
+  describe('formatExplainResult', () => {
+    const explain = (overrides = {}) => ({
+      path: '/repo/src/auth.ts',
+      language: 'typescript',
+      lineCount: 20,
+      byteSize: 512,
+      imports: ['node:crypto'],
+      symbols: [{ kind: 'function', name: 'authenticateUser', line: 4 }],
+      summary: 'auth.ts is a 20-line typescript file.',
+      ...overrides,
+    });
+
+    it('lays out the summary, the file facts, the imports and the symbols', () => {
+      expect(formatExplainResult(explain())).toBe(
+        [
+          'auth.ts is a 20-line typescript file.',
+          '',
+          'Language: typescript',
+          'Lines: 20',
+          'Size: 512 bytes',
+          'Imports: node:crypto',
+          '',
+          'Symbols:',
+          '- function authenticateUser (line 4)',
+        ].join('\n'),
+      );
+    });
+
+    it('joins several imports with a comma', () => {
+      expect(formatExplainResult(explain({ imports: ['a', 'b', 'c'] }))).toContain(
+        'Imports: a, b, c',
+      );
+    });
+
+    it('says "none" rather than leaving the imports line empty', () => {
+      expect(formatExplainResult(explain({ imports: [] }))).toContain('Imports: none');
+    });
+
+    it('says so explicitly when no top-level symbol was detected', () => {
+      // A model reading "Symbols:" followed by nothing may invent one.
+      expect(formatExplainResult(explain({ symbols: [] }))).toContain('- none detected');
+    });
+
+    it('lists every symbol on its own line', () => {
+      const output = formatExplainResult(
+        explain({
+          symbols: [
+            { kind: 'class', name: 'Repo', line: 2 },
+            { kind: 'function', name: 'find', line: 9 },
+          ],
+        }),
+      );
+
+      expect(output).toContain('- class Repo (line 2)\n- function find (line 9)');
+    });
   });
 });

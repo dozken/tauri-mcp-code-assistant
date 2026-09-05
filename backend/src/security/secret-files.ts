@@ -91,17 +91,24 @@ const ENV_PREFIX = '.env.';
  * `environment.ts`, which merely starts with the same letters.
  */
 const isEnvFile = (name: string): boolean => {
-  if (name === '.env') return true;
+  // No `name === '.env'` branch: `endsWith` below already covers it, and mutation
+  // testing showed nothing could tell the two apart.
   if (name.startsWith(ENV_PREFIX)) {
     return !PUBLISHABLE_ENV_SUFFIXES.has(name.slice(ENV_PREFIX.length));
   }
   return name.endsWith('.env');
 };
 
-/** Extension without the dot; empty for a dotfile or a name with no dot. */
+/**
+ * Extension without the dot.
+ *
+ * A leading dot normally means "no extension", but a file named exactly `.key` or
+ * `.pem` is still key material — and treating it as extensionless let it through.
+ */
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
-  return dot <= 0 ? '' : name.slice(dot + 1);
+  if (dot > 0) return name.slice(dot + 1);
+  return dot === 0 ? name.slice(1) : '';
 };
 
 /**
