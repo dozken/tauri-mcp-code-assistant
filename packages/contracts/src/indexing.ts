@@ -8,6 +8,11 @@ export const indexProgressEventSchema = z.object({
   state: indexJobStateSchema,
   filesDiscovered: z.number().int().nonnegative(),
   filesIndexed: z.number().int().nonnegative(),
+  /**
+   * Files whose content was unchanged since the last run, so they were neither
+   * re-chunked nor re-embedded. Counted within `filesIndexed`.
+   */
+  filesSkipped: z.number().int().nonnegative(),
   chunksIndexed: z.number().int().nonnegative(),
   currentFile: z.string().optional(),
   error: z.string().optional(),
@@ -44,6 +49,7 @@ export const indexJobSchema = z.object({
   state: indexJobStateSchema,
   filesDiscovered: z.number().int().nonnegative(),
   filesIndexed: z.number().int().nonnegative(),
+  filesSkipped: z.number().int().nonnegative(),
   chunksIndexed: z.number().int().nonnegative(),
   currentFile: z.string().optional(),
   startedAt: z.string(),

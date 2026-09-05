@@ -57,6 +57,10 @@ export class VectorStoreService implements VectorStore {
     return (await this.resolve()).deleteByRoot(root);
   }
 
+  async deleteByPaths(paths: readonly string[]): Promise<void> {
+    return (await this.resolve()).deleteByPaths(paths);
+  }
+
   async count(): Promise<number> {
     return (await this.resolve()).count();
   }

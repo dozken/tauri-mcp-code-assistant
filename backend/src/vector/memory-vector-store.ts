@@ -48,6 +48,14 @@ export class MemoryVectorStore implements VectorStore {
     }
   }
 
+  async deleteByPaths(paths: readonly string[]): Promise<void> {
+    if (paths.length === 0) return;
+    const targets = new Set(paths);
+    for (const [id, chunk] of this.chunks) {
+      if (targets.has(chunk.metadata.path)) this.chunks.delete(id);
+    }
+  }
+
   async count(): Promise<number> {
     return this.chunks.size;
   }

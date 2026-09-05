@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -235,6 +235,141 @@ describe('IndexingService', () => {
       const status = await service.getStatus();
       expect(status.roots.map((entry) => entry.path)).not.toContain(root);
       expect(await metadata.listRoots()).toEqual([]);
+    });
+  });
+
+  describe('incremental re-indexing', () => {
+    /** Counts embedding calls, which is the cost incremental indexing exists to avoid. */
+    const countEmbeds = (target: MemoryVectorStore): { calls: () => number } => {
+      let calls = 0;
+      const original = target.upsert.bind(target);
+      target.upsert = async (chunks) => {
+        calls += chunks.length;
+        return original(chunks);
+      };
+      return { calls: () => calls };
+    };
+
+    it('re-embeds nothing when no file has changed', async () => {
+      await service.startIndexing(root);
+      await settle(service);
+      const first = await service.getStatus();
+
+      const embeds = countEmbeds(store);
+      await service.startIndexing(root);
+      await settle(service);
+
+      expect(embeds.calls()).toBe(0);
+      // The folder is still fully searchable: the counts did not collapse to zero.
+      const second = await service.getStatus();
+      expect(second.roots[0]?.chunkCount).toBe(first.roots[0]?.chunkCount);
+      expect(second.totalChunks).toBe(first.totalChunks);
+    });
+
+    it('re-embeds only the file whose content changed', async () => {
+      await service.startIndexing(root);
+      await settle(service);
+
+      await writeFile(join(root, 'auth.ts'), 'export const rewritten = "changed";\n');
+      const embeds = countEmbeds(store);
+      await service.startIndexing(root);
+      await settle(service);
+
+      expect(embeds.calls()).toBeGreaterThan(0);
+      const results = await store.search('changed', { limit: 20 });
+      expect(results.some((match) => match.text.includes('changed'))).toBe(true);
+    });
+
+    it('does not re-embed a file whose timestamp moved but whose bytes did not', async () => {
+      // A checkout or a `touch` moves mtime without changing content; hashing is
+      // what stops that costing a full re-embed of the repository.
+      const unchanged = join(root, 'auth.ts');
+      const original = await readFile(unchanged, 'utf8');
+      await service.startIndexing(root);
+      await settle(service);
+
+      await writeFile(unchanged, original);
+      const embeds = countEmbeds(store);
+      await service.startIndexing(root);
+      await settle(service);
+
+      expect(embeds.calls()).toBe(0);
+    });
+
+    it('drops the chunks of a file that has been deleted', async () => {
+      await service.startIndexing(root);
+      await settle(service);
+      expect(await store.search('authenticate', { limit: 20 })).not.toHaveLength(0);
+
+      await rm(join(root, 'auth.ts'));
+      await service.startIndexing(root);
+      await settle(service);
+
+      const remaining = await store.search('authenticate', { limit: 20 });
+      expect(remaining.map((match) => match.metadata.relativePath)).not.toContain('auth.ts');
+    });
+
+    it('replaces rather than merges when a file shrinks', async () => {
+      await writeFile(join(root, 'auth.ts'), `export const a = 1;\n${'// filler\n'.repeat(200)}`);
+      await service.startIndexing(root);
+      await settle(service);
+      const before = await service.getStatus();
+
+      await writeFile(join(root, 'auth.ts'), 'export const a = 1;\n');
+      await service.startIndexing(root);
+      await settle(service);
+
+      // Orphaned chunks from the longer version must not survive.
+      const after = await service.getStatus();
+      expect(after.totalChunks).toBeLessThan(before.totalChunks);
+    });
+
+    it('reports how many files it skipped', async () => {
+      await service.startIndexing(root);
+      await settle(service);
+
+      const events: number[] = [];
+      const subscription = service.progress.subscribe((event) => events.push(event.filesSkipped));
+      await service.startIndexing(root);
+      await settle(service);
+      subscription.unsubscribe();
+
+      expect(Math.max(...events)).toBeGreaterThan(0);
+    });
+
+    it('re-indexes from scratch after a restart lost the in-memory chunks', async () => {
+      // The live failure this guards: per-file state survives in SQLite, the
+      // chunks do not, and trusting the records skipped every file — leaving a
+      // folder that reported hundreds of indexed files and zero searchable chunks.
+      await service.startIndexing(root);
+      await settle(service);
+
+      // A restart: same metadata, a brand-new (empty) vector store.
+      const restartedStore = new MemoryVectorStore(new HashingEmbeddings({ dimensions: 64 }));
+      const restarted = new IndexingService(
+        testConfig({
+          indexing: {
+            chunkSize: 400,
+            chunkOverlap: 50,
+            maxFileBytes: 64 * 1024,
+            concurrency: 4,
+            allowedRoots: [root],
+          },
+        }),
+        metadata,
+        asVectorStoreService(restartedStore),
+        silentLogger(),
+      );
+      await restarted.onModuleInit();
+      expect((await restarted.getStatus()).roots[0]?.stale).toBe(true);
+
+      await restarted.startIndexing(root);
+      await settle(restarted);
+
+      const status = await restarted.getStatus();
+      expect(status.totalChunks).toBeGreaterThan(0);
+      expect(status.totalChunks).toBe(status.roots[0]?.chunkCount);
+      expect(status.roots[0]?.stale).toBe(false);
     });
   });
 });

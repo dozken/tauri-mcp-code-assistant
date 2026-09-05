@@ -66,6 +66,71 @@ const behavesLikeAMetadataStore = (name: string, make: () => Promise<MetadataSto
 
       expect(await store.listRoots()).toEqual([]);
     });
+
+    describe('per-file state', () => {
+      const file = (path: string, root = '/repo') => ({
+        root,
+        path,
+        size: 120,
+        mtimeMs: 1_700_000_000_000,
+        contentHash: `hash-of-${path}`,
+        chunkCount: 3,
+      });
+
+      it('round-trips the records for one root', async () => {
+        await store.upsertFiles([file('/repo/a.ts'), file('/repo/b.ts')]);
+
+        const records = await store.listFiles('/repo');
+
+        expect(records.map((record) => record.path).toSorted()).toEqual([
+          '/repo/a.ts',
+          '/repo/b.ts',
+        ]);
+        expect(records[0]).toMatchObject({ size: 120, chunkCount: 3 });
+      });
+
+      it('scopes the listing to the root asked for', async () => {
+        await store.upsertFiles([file('/repo/a.ts'), file('/other/c.ts', '/other')]);
+
+        expect(await store.listFiles('/other')).toHaveLength(1);
+      });
+
+      it('overwrites a record rather than duplicating it', async () => {
+        await store.upsertFiles([file('/repo/a.ts')]);
+        await store.upsertFiles([{ ...file('/repo/a.ts'), contentHash: 'changed', chunkCount: 9 }]);
+
+        const records = await store.listFiles('/repo');
+        expect(records).toHaveLength(1);
+        expect(records[0]).toMatchObject({ contentHash: 'changed', chunkCount: 9 });
+      });
+
+      it('removes named files', async () => {
+        await store.upsertFiles([file('/repo/a.ts'), file('/repo/b.ts')]);
+
+        await store.removeFiles(['/repo/a.ts']);
+
+        expect((await store.listFiles('/repo')).map((record) => record.path)).toEqual([
+          '/repo/b.ts',
+        ]);
+      });
+
+      it("forgets a root's files when the root itself is removed", async () => {
+        // Otherwise a re-added folder would be diffed against state for chunks that
+        // no longer exist, and every file would look unchanged.
+        await store.upsertRoot({
+          path: '/repo',
+          fileCount: 2,
+          chunkCount: 6,
+          lastIndexedAt: '2026-01-01T00:00:00.000Z',
+          store: 'memory',
+        });
+        await store.upsertFiles([file('/repo/a.ts')]);
+
+        await store.removeRoot('/repo');
+
+        expect(await store.listFiles('/repo')).toEqual([]);
+      });
+    });
   });
 };
 

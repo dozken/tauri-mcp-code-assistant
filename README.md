@@ -469,6 +469,28 @@ path, so a symlink cannot launder `~/.ssh/id_rsa` into an innocent name inside t
 Deliberately allowed: `.env.example`, `.env.sample`, `.env.template` — they exist to be read. And
 deliberately not configurable: a deny-list with an off switch is one that ends up switched off.
 
+#### Re-indexing only re-embeds what changed
+
+A re-index used to re-read, re-chunk and re-embed every file. It now diffs the walk
+against per-file state in SQLite, using two escalating comparisons:
+
+| Check                   | Cost                                 | Catches                                            |
+| ----------------------- | ------------------------------------ | -------------------------------------------------- |
+| `size` + `mtime` match  | one `stat`, the file is never opened | the common case on a large repo                    |
+| `sha256` of the content | a read, but no embedding             | mtime lying — a fresh clone, a checkout, a `touch` |
+
+Only a genuine content change is re-embedded, and files the walk no longer finds
+have their chunks dropped. Embedding is the expensive step — a network round trip
+per batch with a hosted provider — so the saving scales with how little actually
+changed. With the offline hashing embedder the wall-clock difference is small,
+because there is nothing expensive to skip.
+
+One rule keeps this honest: per-file state is trusted **only while the chunks it
+describes still exist**. A `stale` root means they do not — the previous run wrote
+to the in-memory store and the process has restarted — so that case re-indexes from
+scratch. Without it a restart produced a folder reporting 298 indexed files and
+zero searchable chunks, which is exactly what the live check caught.
+
 #### Chat turns have a deadline
 
 `LLM_TIMEOUT_MS` (default 120s) caps a whole turn, tool calls included. Past it the turn is
@@ -488,7 +510,8 @@ What it does **not** do yet, and would need before shipping:
 
 ### Known limitations
 
-- Re-indexing a folder rewrites it wholesale; there is no incremental/watch mode.
+- Re-indexing is incremental but not automatic: nothing watches the folder, so a
+  re-index is still something you ask for.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
 - `.gitignore` is read from the folder root only, not from nested directories.
 - Chat history is held by the client and replayed on each turn; there is no server-side session.

@@ -37,6 +37,7 @@ const activeJob: IndexProgressEvent = {
   state: 'running',
   filesDiscovered: 10,
   filesIndexed: 4,
+  filesSkipped: 0,
   chunksIndexed: 20,
   currentFile: 'src/auth.ts',
   percent: 40,

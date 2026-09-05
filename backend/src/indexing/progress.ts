@@ -13,6 +13,7 @@ export const toProgressEvent = (job: IndexJob): IndexProgressEvent => ({
   state: job.state,
   filesDiscovered: job.filesDiscovered,
   filesIndexed: job.filesIndexed,
+  filesSkipped: job.filesSkipped,
   chunksIndexed: job.chunksIndexed,
   currentFile: job.currentFile,
   error: job.error,

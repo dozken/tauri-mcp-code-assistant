@@ -10,17 +10,40 @@ export interface IndexedRootRecord {
   readonly store: string;
 }
 
+/**
+ * What one file looked like the last time it was indexed.
+ *
+ * `size` and `mtimeMs` are the cheap comparison — matching both means the file
+ * can be skipped without even being read. `contentHash` is the honest one, and
+ * settles the cases where mtime lies: a fresh clone, a checkout, a touch.
+ */
+export interface IndexedFileRecord {
+  readonly root: string;
+  readonly path: string;
+  readonly size: number;
+  readonly mtimeMs: number;
+  readonly contentHash: string;
+  readonly chunkCount: number;
+}
+
 export interface MetadataStore {
   readonly kind: 'sqlite' | 'memory';
   upsertRoot(record: IndexedRootRecord): Promise<void>;
   listRoots(): Promise<IndexedRootRecord[]>;
   removeRoot(path: string): Promise<void>;
+
+  /** Per-file state for one root, keyed by absolute path. */
+  listFiles(root: string): Promise<IndexedFileRecord[]>;
+  upsertFiles(records: readonly IndexedFileRecord[]): Promise<void>;
+  removeFiles(paths: readonly string[]): Promise<void>;
+
   close(): Promise<void>;
 }
 
 export class MemoryMetadataStore implements MetadataStore {
   readonly kind = 'memory' as const;
   private readonly roots = new Map<string, IndexedRootRecord>();
+  private readonly files = new Map<string, IndexedFileRecord>();
 
   async upsertRoot(record: IndexedRootRecord): Promise<void> {
     this.roots.set(record.path, record);
@@ -32,6 +55,21 @@ export class MemoryMetadataStore implements MetadataStore {
 
   async removeRoot(path: string): Promise<void> {
     this.roots.delete(path);
+    for (const [key, record] of this.files) {
+      if (record.root === path) this.files.delete(key);
+    }
+  }
+
+  async listFiles(root: string): Promise<IndexedFileRecord[]> {
+    return [...this.files.values()].filter((record) => record.root === root);
+  }
+
+  async upsertFiles(records: readonly IndexedFileRecord[]): Promise<void> {
+    for (const record of records) this.files.set(record.path, record);
+  }
+
+  async removeFiles(paths: readonly string[]): Promise<void> {
+    for (const path of paths) this.files.delete(path);
   }
 
   // Nothing to release: the map dies with the process.
@@ -78,6 +116,18 @@ class SqliteMetadataStore implements MetadataStore {
         store           TEXT    NOT NULL
       )
     `);
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS indexed_files (
+        path         TEXT PRIMARY KEY,
+        root         TEXT    NOT NULL,
+        size         INTEGER NOT NULL,
+        mtime_ms     REAL    NOT NULL,
+        content_hash TEXT    NOT NULL,
+        chunk_count  INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    // Every re-index reads one root's worth of rows; without this that is a scan.
+    await this.run('CREATE INDEX IF NOT EXISTS indexed_files_root ON indexed_files (root)');
   }
 
   async upsertRoot(record: IndexedRootRecord): Promise<void> {
@@ -112,6 +162,55 @@ class SqliteMetadataStore implements MetadataStore {
 
   async removeRoot(path: string): Promise<void> {
     await this.run('DELETE FROM indexed_roots WHERE path = ?', [path]);
+    await this.run('DELETE FROM indexed_files WHERE root = ?', [path]);
+  }
+
+  async listFiles(root: string): Promise<IndexedFileRecord[]> {
+    const rows = await this.all<{
+      path: string;
+      root: string;
+      size: number;
+      mtime_ms: number;
+      content_hash: string;
+      chunk_count: number;
+    }>('SELECT * FROM indexed_files WHERE root = ?', [root]);
+    return rows.map((row) => ({
+      path: row.path,
+      root: row.root,
+      size: row.size,
+      mtimeMs: row.mtime_ms,
+      contentHash: row.content_hash,
+      chunkCount: row.chunk_count,
+    }));
+  }
+
+  async upsertFiles(records: readonly IndexedFileRecord[]): Promise<void> {
+    for (const record of records) {
+      await this.run(
+        `INSERT INTO indexed_files (path, root, size, mtime_ms, content_hash, chunk_count)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET
+           root = excluded.root,
+           size = excluded.size,
+           mtime_ms = excluded.mtime_ms,
+           content_hash = excluded.content_hash,
+           chunk_count = excluded.chunk_count`,
+        [
+          record.path,
+          record.root,
+          record.size,
+          record.mtimeMs,
+          record.contentHash,
+          record.chunkCount,
+        ],
+      );
+    }
+  }
+
+  async removeFiles(paths: readonly string[]): Promise<void> {
+    for (const path of paths) {
+      await this.run('DELETE FROM indexed_files WHERE path = ?', [path]);
+    }
   }
 
   close(): Promise<void> {

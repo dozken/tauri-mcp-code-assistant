@@ -125,6 +125,18 @@ export class ChromaVectorStore implements VectorStore {
     await collection.delete({ where: { root: { $eq: root } } });
   }
 
+  async deleteByPaths(paths: readonly string[]): Promise<void> {
+    if (paths.length === 0) return;
+    const collection = await this.getCollection();
+    // Batched: `$in` with thousands of paths makes a request Chroma rejects, and a
+    // re-index of a large repo can easily delete that many at once.
+    for (let offset = 0; offset < paths.length; offset += this.batchSize) {
+      await collection.delete({
+        where: { path: { $in: paths.slice(offset, offset + this.batchSize) } },
+      });
+    }
+  }
+
   async count(): Promise<number> {
     const collection = await this.getCollection();
     return collection.count();

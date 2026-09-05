@@ -88,6 +88,7 @@ describe('indexing schemas', () => {
       state: 'running',
       filesDiscovered: 1,
       filesIndexed: 1,
+      filesSkipped: 0,
       chunksIndexed: 1,
       percent: 140,
     };
@@ -235,6 +236,7 @@ describe('indexing payloads', () => {
     state: 'running',
     filesDiscovered: 4,
     filesIndexed: 2,
+    filesSkipped: 0,
     chunksIndexed: 6,
     percent: 50,
   };
@@ -279,6 +281,7 @@ describe('indexing payloads', () => {
       state: 'completed',
       filesDiscovered: 1,
       filesIndexed: 1,
+      filesSkipped: 0,
       chunksIndexed: 1,
       startedAt: '2026-01-01T00:00:00.000Z',
     };

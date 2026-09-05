@@ -119,6 +119,7 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
           <Typography variant="caption" color="text.secondary" noWrap>
             Indexing {basename(activeJob.root)} — {activeJob.filesIndexed}/
             {activeJob.filesDiscovered} files, {activeJob.chunksIndexed} chunks
+            {activeJob.filesSkipped > 0 ? `, ${String(activeJob.filesSkipped)} unchanged` : ''}
           </Typography>
           <LinearProgress
             variant={activeJob.filesDiscovered > 0 ? 'determinate' : 'indeterminate'}

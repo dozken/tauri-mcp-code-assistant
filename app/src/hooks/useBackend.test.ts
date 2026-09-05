@@ -72,6 +72,7 @@ const progress = (state: 'running' | 'completed' = 'running') => ({
   state,
   filesDiscovered: 4,
   filesIndexed: 2,
+  filesSkipped: 0,
   chunksIndexed: 6,
   percent: 50,
 });

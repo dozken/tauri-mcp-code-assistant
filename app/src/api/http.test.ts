@@ -58,6 +58,7 @@ describe('http client', () => {
           state: 'running',
           filesDiscovered: 0,
           filesIndexed: 0,
+          filesSkipped: 0,
           chunksIndexed: 0,
           startedAt: '2026-01-01T00:00:00.000Z',
         },

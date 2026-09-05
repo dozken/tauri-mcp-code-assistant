@@ -31,5 +31,11 @@ export interface VectorStore {
   search(query: string, options?: SearchOptions): Promise<ScoredChunk[]>;
   /** Removes every chunk previously indexed under `root`. */
   deleteByRoot(root: string): Promise<void>;
+  /**
+   * Removes the chunks of specific files. Incremental re-indexing needs this:
+   * `deleteByRoot` is all-or-nothing, so without it every re-index has to
+   * re-embed the whole folder to drop one deleted file's chunks.
+   */
+  deleteByPaths(paths: readonly string[]): Promise<void>;
   count(): Promise<number>;
 }

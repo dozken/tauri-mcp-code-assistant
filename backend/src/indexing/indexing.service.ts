@@ -1,5 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   ConflictException,
@@ -11,7 +11,11 @@ import {
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Subject, type Observable } from 'rxjs';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
-import { METADATA_STORE, type MetadataStore } from '../common/metadata-store.js';
+import {
+  METADATA_STORE,
+  type IndexedFileRecord,
+  type MetadataStore,
+} from '../common/metadata-store.js';
 import { resolveWithinRoots } from '../security/path-guard.js';
 import { VectorStoreService } from '../vector/vector-store.service.js';
 import type { CodeChunk } from '../vector/vector-store.types.js';
@@ -97,6 +101,7 @@ export class IndexingService implements OnModuleInit {
         state: 'running',
         filesDiscovered: 0,
         filesIndexed: 0,
+        filesSkipped: 0,
         chunksIndexed: 0,
         startedAt: new Date().toISOString(),
       };
@@ -159,9 +164,21 @@ export class IndexingService implements OnModuleInit {
 
   private async run(job: IndexJob, signal: AbortSignal): Promise<void> {
     try {
-      // Re-indexing replaces the folder wholesale; without this, chunks for files
-      // that were deleted or renamed would linger forever.
-      await this.vectorStore.deleteByRoot(job.root);
+      // Per-file state is only worth anything while the chunks it describes still
+      // exist. A `stale` root means they do not: the previous run wrote to a
+      // non-persistent store and the process has restarted since. Trusting the
+      // records then skips every file and leaves the index silently empty — a
+      // folder reporting hundreds of indexed files and zero searchable chunks.
+      const recorded = await this.metadata.listFiles(job.root);
+      const reusable = this.roots.get(job.root)?.stale === false;
+      const previous = reusable
+        ? new Map(recorded.map((record) => [record.path, record]))
+        : new Map<string, IndexedFileRecord>();
+
+      if (!reusable) {
+        await this.vectorStore.deleteByRoot(job.root);
+        await this.metadata.removeFiles(recorded.map((record) => record.path));
+      }
 
       const files: WalkedFile[] = [];
       for await (const file of walkFiles(job.root, {
@@ -174,7 +191,11 @@ export class IndexingService implements OnModuleInit {
       }
       this.emit(job, true);
 
-      await this.processFiles(job, files, signal);
+      await this.processFiles(job, files, previous, signal);
+
+      // Files still in `previous` were not seen by the walk: deleted, renamed, or
+      // newly ignored. Their chunks would otherwise answer queries forever.
+      if (!signal.aborted) await this.forgetMissing(job.root, previous);
 
       job.state = signal.aborted ? 'cancelled' : 'completed';
     } catch (error) {
@@ -213,10 +234,12 @@ export class IndexingService implements OnModuleInit {
   private async processFiles(
     job: IndexJob,
     files: readonly WalkedFile[],
+    previous: Map<string, IndexedFileRecord>,
     signal: AbortSignal,
   ): Promise<void> {
     let cursor = 0;
     const workers = Math.max(1, Math.min(this.config.indexing.concurrency, files.length));
+    const seen: IndexedFileRecord[] = [];
 
     const worker = async (): Promise<void> => {
       while (!signal.aborted) {
@@ -226,14 +249,15 @@ export class IndexingService implements OnModuleInit {
 
         job.currentFile = file.relativePath;
         try {
-          const chunks = await this.chunkFile(job.root, file);
-          if (chunks.length > 0) {
-            await this.vectorStore.upsert(chunks);
-            job.chunksIndexed += chunks.length;
-          }
+          const record = await this.indexOne(job, file, previous.get(file.absolutePath));
+          seen.push(record);
+          previous.delete(file.absolutePath);
         } catch (error) {
           // One unreadable or undecodable file must not abort a whole repository.
           this.logger.warn({ err: error, file: file.absolutePath }, 'Skipped file');
+          // Not recorded as seen, so the next run retries it rather than treating
+          // a transient read failure as a deletion.
+          previous.delete(file.absolutePath);
         }
         job.filesIndexed += 1;
         this.emit(job);
@@ -241,10 +265,75 @@ export class IndexingService implements OnModuleInit {
     };
 
     await Promise.all(Array.from({ length: workers }, worker));
+    await this.metadata.upsertFiles(seen).catch((error: unknown) => {
+      this.logger.warn({ err: error }, 'Could not persist per-file index state');
+    });
   }
 
-  private async chunkFile(root: string, file: WalkedFile): Promise<CodeChunk[]> {
+  /**
+   * Indexes one file, or proves it does not need indexing.
+   *
+   * Two escalating comparisons. Matching size and mtime means the file can be
+   * skipped without being opened at all, which is where most of the saving is on
+   * a large repository. When they differ the content is hashed, because mtime
+   * lies routinely — a fresh clone, a checkout, a `touch` — and re-embedding a
+   * file whose bytes never changed is the expensive mistake.
+   */
+  private async indexOne(
+    job: IndexJob,
+    file: WalkedFile,
+    previous: IndexedFileRecord | undefined,
+  ): Promise<IndexedFileRecord> {
+    const { mtimeMs } = await stat(file.absolutePath);
+    if (previous?.size === file.size && previous.mtimeMs === mtimeMs) {
+      job.filesSkipped += 1;
+      job.chunksIndexed += previous.chunkCount;
+      return previous;
+    }
+
     const content = await readFile(file.absolutePath, 'utf8');
+    const contentHash = createHash('sha256').update(content).digest('hex');
+
+    if (previous?.contentHash === contentHash) {
+      job.filesSkipped += 1;
+      job.chunksIndexed += previous.chunkCount;
+      // The bytes are the same but the timestamp moved; record it so the cheap
+      // comparison succeeds next time.
+      return { ...previous, mtimeMs };
+    }
+
+    const chunks = this.chunkContent(job.root, file, content);
+    // Replace rather than merge: a file that shrank leaves orphaned chunks whose
+    // ids no longer collide with anything the new content produces.
+    if (previous) await this.vectorStore.deleteByPaths([file.absolutePath]);
+    if (chunks.length > 0) await this.vectorStore.upsert(chunks);
+    job.chunksIndexed += chunks.length;
+
+    return {
+      root: job.root,
+      path: file.absolutePath,
+      size: file.size,
+      mtimeMs,
+      contentHash,
+      chunkCount: chunks.length,
+    };
+  }
+
+  /** Drops the chunks and records of files the walk no longer finds. */
+  private async forgetMissing(
+    root: string,
+    missing: ReadonlyMap<string, IndexedFileRecord>,
+  ): Promise<void> {
+    if (missing.size === 0) return;
+    const paths = [...missing.keys()];
+    await this.vectorStore.deleteByPaths(paths);
+    await this.metadata.removeFiles(paths).catch((error: unknown) => {
+      this.logger.warn({ err: error, root }, 'Could not forget removed files');
+    });
+    this.logger.info({ root, removed: paths.length }, 'Dropped chunks for missing files');
+  }
+
+  private chunkContent(root: string, file: WalkedFile, content: string): CodeChunk[] {
     // A NUL byte means we were handed a binary file that slipped past the
     // extension filter; embedding it would only add noise.
     if (content.includes(NUL_BYTE)) return [];
