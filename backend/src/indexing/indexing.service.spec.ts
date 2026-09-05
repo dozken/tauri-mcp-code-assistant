@@ -213,6 +213,40 @@ describe('IndexingService', () => {
   });
 
   describe('status and cancellation', () => {
+    it('leaves a Chroma-backed root usable after a restart, unlike a memory one', async () => {
+      // The whole point of persisting to Chroma: the chunks outlive the process,
+      // so the folder is searchable on launch instead of needing a full re-index.
+      await metadata.upsertRoot({
+        path: '/persisted',
+        fileCount: 3,
+        chunkCount: 9,
+        lastIndexedAt: '2026-01-01T00:00:00.000Z',
+        store: 'chroma',
+      });
+      await metadata.upsertRoot({
+        path: '/ephemeral',
+        fileCount: 3,
+        chunkCount: 9,
+        lastIndexedAt: '2026-01-01T00:00:00.000Z',
+        store: 'memory',
+      });
+
+      const restarted = await build();
+      const byPath = new Map(
+        (await restarted.getStatus()).roots.map((entry) => [entry.path, entry.stale]),
+      );
+
+      expect(byPath.get('/persisted')).toBe(false);
+      expect(byPath.get('/ephemeral')).toBe(true);
+    });
+
+    it('names the folder it is busy with when it refuses a second job', async () => {
+      await service.startIndexing(root);
+
+      await expect(service.startIndexing(root)).rejects.toThrow(root);
+      await settle(service);
+    });
+
     it('lists roots in path order, however they were added', async () => {
       // The sidebar renders this list as given; unsorted, a folder jumps position
       // every time another one is re-indexed.
@@ -635,6 +669,93 @@ describe('IndexingService', () => {
 
       const remaining = await store.search('authenticate', { limit: 20 });
       expect(remaining.map((match) => match.metadata.relativePath)).not.toContain('auth.ts');
+    });
+
+    it('does not skip a file that changed size but kept its length-in-bytes timestamp', async () => {
+      // Size alone is a weak fingerprint — an edit that swaps one identifier for
+      // another of the same length is the common case, not a corner one.
+      const file = join(root, 'auth.ts');
+      const original = await readFile(file, 'utf8');
+      await service.startIndexing(root);
+      await settle(service);
+
+      await writeFile(file, 'y'.repeat(original.length));
+      const embeds = countEmbeds(store);
+      await service.startIndexing(root);
+      await settle(service);
+
+      expect(embeds.calls()).toBeGreaterThan(0);
+    });
+
+    it('counts every reused file, not merely some of them', async () => {
+      await service.startIndexing(root);
+      await settle(service);
+      const indexed = (await service.getStatus()).roots[0]?.fileCount ?? 0;
+
+      const skipped: number[] = [];
+      const subscription = service.progress.subscribe((event) => skipped.push(event.filesSkipped));
+      await service.startIndexing(root);
+      await settle(service);
+      subscription.unsubscribe();
+
+      expect(Math.max(...skipped)).toBe(indexed);
+    });
+
+    it('records one row per walked file, with a usable content hash', async () => {
+      await service.startIndexing(root);
+      await settle(service);
+
+      const records = await metadata.listFiles(root);
+      const walked = (await service.getStatus()).roots[0]?.fileCount;
+
+      expect(records).toHaveLength(walked ?? 0);
+      for (const record of records) {
+        // sha256 as hex: anything else and every comparison next run is a miss.
+        expect(record.contentHash).toMatch(/^[\da-f]{64}$/);
+        expect(record.root).toBe(root);
+      }
+    });
+
+    it('keeps the rows intact when only timestamps moved', async () => {
+      const file = join(root, 'auth.ts');
+      const original = await readFile(file, 'utf8');
+      await service.startIndexing(root);
+      await settle(service);
+
+      await writeFile(file, original);
+      await service.startIndexing(root);
+      await settle(service);
+
+      const record = (await metadata.listFiles(root)).find((entry) => entry.path === file);
+      expect(record).toMatchObject({ root, path: file });
+      expect(record?.chunkCount).toBeGreaterThan(0);
+    });
+
+    it('does not treat a file that failed mid-run as one the walk never saw', async () => {
+      // A file that threw before its chunks were replaced still exists and its old
+      // chunks are still good. Letting it fall through to `forgetMissing` would
+      // delete them on the strength of a transient error.
+      await service.startIndexing(root);
+      await settle(service);
+
+      await writeFile(join(root, 'auth.ts'), 'export const changed = true;\n');
+      // Fails on the replace, so `indexOne` throws with the old chunks still in
+      // place; the later call from `forgetMissing` would go through.
+      vi.spyOn(store, 'deleteByPaths').mockRejectedValueOnce(new Error('transient'));
+      await service.startIndexing(root);
+      await settle(service);
+
+      const remaining = await store.search('authenticate', { limit: 20 });
+      expect(remaining.map((match) => match.metadata.relativePath)).toContain('auth.ts');
+    });
+
+    it('makes no per-file delete call on a first index, where nothing can be stale', async () => {
+      const deleteByPaths = vi.spyOn(store, 'deleteByPaths');
+
+      await service.startIndexing(root);
+      await settle(service);
+
+      expect(deleteByPaths).not.toHaveBeenCalled();
     });
 
     it('re-indexes from scratch after a restart lost the in-memory chunks', async () => {

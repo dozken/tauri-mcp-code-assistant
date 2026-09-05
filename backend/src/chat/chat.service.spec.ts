@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CodeToolsService } from '../tools/code-tools.service.js';
 import { HashingEmbeddings } from '../vector/embeddings.js';
 import { MemoryVectorStore } from '../vector/memory-vector-store.js';
@@ -6,7 +6,7 @@ import type { VectorStoreService } from '../vector/vector-store.service.js';
 import { McpToolsService } from '../mcp/mcp-tools.service.js';
 import { StubChatModel } from '../llm/stub-chat-model.js';
 import { silentLogger, testConfig } from '../../test/helpers.js';
-import { ChatService } from './chat.service.js';
+import { ChatService, ChatTimeoutError } from './chat.service.js';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { AIMessage, AIMessageChunk } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -241,6 +241,9 @@ describe('ChatService tool loop', () => {
     ['a tool message', () => ({ content: 'from a message' }), 'from a message'],
     ['anything else', () => ({ hits: 2 }), '{"hits":2}'],
     ['undefined', () => undefined, 'null'],
+    // `'content' in null` throws, so the null guard is load-bearing rather than
+    // defensive: without it one null tool result ends the whole turn.
+    ['null', () => null, 'null'],
   ])('reads a tool result that is %s', async (_label, run, expected) => {
     const chat = serviceWith(insatiable('search_code', 'done'), [fakeTool('search_code', run)]);
 
@@ -266,31 +269,110 @@ describe('ChatService tool loop', () => {
   });
 });
 
-describe('ChatService prompt assembly', () => {
-  it('replays the history it is given as alternating turns', async () => {
-    const { chat } = await buildChatService();
+describe('ChatService tool loop, edge cases', () => {
+  it('says nothing rather than yielding an empty token when the last answer is blank', async () => {
+    const model = insatiable('search_code', '');
+    const chat = serviceWith(model, [fakeTool('search_code', () => 'nothing useful')]);
 
-    const events = await collect(
-      chat.stream({
-        message: 'and where is it called from?',
-        history: [
-          { role: 'user', content: 'where do we authenticate?' },
-          { role: 'assistant', content: 'In src/auth.ts.' },
-        ],
-      }),
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(events.filter((event) => event.type === 'token')).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: 'done', message: '' });
+  });
+
+  it('asks the model to answer from the observations once the budget is spent', async () => {
+    // The prompt is the whole mechanism: without it the model has no instruction
+    // to stop calling tools, and the turn ends on an empty answer.
+    const invoke = vi.fn().mockResolvedValue(new AIMessage({ content: 'final' }));
+    const model = {
+      _llmType: () => 'insatiable',
+      stream: async () =>
+        (async function* () {
+          yield new AIMessageChunk({
+            content: '',
+            tool_calls: [
+              { id: 'c1', name: 'search_code', args: { query: 'x' }, type: 'tool_call' },
+            ],
+          });
+        })(),
+      invoke,
+    } as unknown as BaseChatModel;
+
+    await collect(
+      serviceWith(model, [fakeTool('search_code', () => 'hit')]).stream({ message: 'where?' }),
     );
 
-    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    const messages = (invoke.mock.calls[0]?.[0] ?? []) as { content: unknown }[];
+    expect(String(messages.at(-1)?.content)).toContain('Tool budget exhausted');
+  });
+
+  it('answers empty rather than throwing when the model streams no chunks at all', async () => {
+    const silent = {
+      _llmType: () => 'silent',
+      bindTools: () => silent,
+
+      stream: async () => (async function* (): AsyncGenerator<AIMessageChunk> {})(),
+    } as unknown as BaseChatModel;
+
+    const events = await collect(serviceWith(silent, []).stream({ message: 'anything' }));
+
+    expect(events.at(-1)).toMatchObject({ type: 'done', message: '' });
+  });
+});
+
+describe('ChatService prompt assembly', () => {
+  /** Captures the messages the model was handed on the first turn. */
+  const seenByModel = async (request: Parameters<ChatService['stream']>[0]): Promise<string[]> => {
+    const messages: string[] = [];
+    const recorder = {
+      _llmType: () => 'recorder',
+      bindTools: () => recorder,
+      stream: async (given: { content: unknown }[]) => {
+        messages.push(...given.map((message) => String(message.content)));
+
+        return (async function* (): AsyncGenerator<AIMessageChunk> {})();
+      },
+    } as unknown as BaseChatModel;
+
+    await collect(
+      new ChatService(
+        recorder,
+        { getTools: async () => [] } as unknown as McpToolsService,
+        testConfig(),
+        silentLogger(),
+      ).stream(request),
+    );
+
+    return messages;
+  };
+
+  it('replays the history it is given as alternating turns', async () => {
+    const messages = await seenByModel({
+      message: 'and where is it called from?',
+      history: [
+        { role: 'user', content: 'where do we authenticate?' },
+        { role: 'assistant', content: 'In src/auth.ts.' },
+      ],
+    });
+
+    // Dropping the history is invisible in the reply and ruins every follow-up.
+    expect(messages).toContain('where do we authenticate?');
+    expect(messages).toContain('In src/auth.ts.');
+    expect(messages.at(-1)).toBe('and where is it called from?');
   });
 
   it('pins the search to one root when the request names one', async () => {
-    const { chat } = await buildChatService();
+    const withRoot = await seenByModel({ message: 'where do we authenticate?', root: '/repo' });
+    const without = await seenByModel({ message: 'where do we authenticate?' });
 
-    const events = await collect(
-      chat.stream({ message: 'where do we authenticate?', root: '/repo' }),
-    );
+    expect(withRoot.some((message) => message.includes('root="/repo"'))).toBe(true);
+    expect(without.some((message) => message.includes('root='))).toBe(false);
+  });
 
-    expect(events.at(-1)).toMatchObject({ type: 'done' });
+  it('leads with a system prompt telling the model to ground itself first', async () => {
+    const messages = await seenByModel({ message: 'anything' });
+
+    expect(messages[0]).toContain('search_code');
   });
 });
 
@@ -321,9 +403,33 @@ describe('ChatService deadline', () => {
   it('rejects the blocking /chat variant rather than holding the connection', async () => {
     const { chat } = await buildChatService({ timeoutMs: 1, tokenDelayMs: 20 });
 
+    // The type is the contract: the HTTP layer answers 504 on this and 500 on
+    // anything else, so a plain Error here would be a silent downgrade to 500.
     await expect(chat.chat({ message: 'where do we authenticate?' })).rejects.toThrow(
-      /did not answer within/,
+      ChatTimeoutError,
     );
+    await expect(chat.chat({ message: 'where do we authenticate?' })).rejects.toMatchObject({
+      name: 'ChatTimeoutError',
+      message: expect.stringContaining('did not answer within'),
+    });
+  });
+
+  it('reports a plain failure as a plain error, so it is not answered with a 504', async () => {
+    const broken = {
+      _llmType: () => 'broken',
+      bindTools: () => broken,
+      stream: () => Promise.reject(new Error('model is misconfigured')),
+    } as unknown as BaseChatModel;
+    const base = testConfig();
+    const chat = new ChatService(
+      broken,
+      { getTools: async () => [] } as unknown as McpToolsService,
+      base,
+      silentLogger(),
+    );
+
+    await expect(chat.chat({ message: 'anything' })).rejects.toThrow('model is misconfigured');
+    await expect(chat.chat({ message: 'anything' })).rejects.not.toBeInstanceOf(ChatTimeoutError);
   });
 
   it('still names the timeout when the model layer buries the abort', async () => {
