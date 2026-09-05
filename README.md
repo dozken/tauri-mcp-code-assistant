@@ -498,6 +498,12 @@ cancelled, the socket gets a `chat:error` naming the timeout, and `POST /chat` a
 rather than holding the connection open. A user pressing Stop is reported as a cancellation, not
 as a timeout — the two are distinguished by the abort reason, not by matching error text.
 
+"Tool calls included" is load-bearing, and it is the part that is easy to get wrong. Tools are
+handed the same signal, but an MCP tool is a separate process and is free to ignore it, so the
+turn also races the signal against the call: a wedged tool ends the turn on time and its eventual
+result is discarded. Without that race a tool that never returned held both the deadline and the
+Stop button open indefinitely.
+
 What it does **not** do yet, and would need before shipping:
 
 - **No rate limiting.** An authenticated caller can start `POST /index` in a loop. The one-job-at-a-

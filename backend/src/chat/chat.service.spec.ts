@@ -7,6 +7,7 @@ import { McpToolsService } from '../mcp/mcp-tools.service.js';
 import { StubChatModel } from '../llm/stub-chat-model.js';
 import { silentLogger, testConfig } from '../../test/helpers.js';
 import { ChatService } from './chat.service.js';
+import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { ChatStreamEvent } from '@ai-code-companion/contracts';
 
 const buildChatService = async (
@@ -148,6 +149,27 @@ describe('ChatService', () => {
   });
 });
 
+/**
+ * A tool that never settles *and ignores the signal it is handed* — which is the
+ * realistic failure, since an MCP tool is a separate process that owes this one
+ * nothing. It is named `search_code` because that is what the stub model reaches
+ * for on the first turn.
+ */
+const wedgedTool = (): StructuredToolInterface =>
+  ({
+    name: 'search_code',
+    description: 'never answers',
+    invoke: async () => new Promise<string>(() => undefined),
+  }) as unknown as StructuredToolInterface;
+
+const chatServiceWithWedgedTool = (timeoutMs: number): ChatService => {
+  const base = testConfig();
+  const config = { ...base, llm: { ...base.llm, timeoutMs } };
+  const mcpTools = { getTools: async () => [wedgedTool()] } as unknown as McpToolsService;
+
+  return new ChatService(new StubChatModel({ tokenDelayMs: 0 }), mcpTools, config, silentLogger());
+};
+
 describe('ChatService deadline', () => {
   it('ends the turn with an error naming the timeout, not a raw AbortError', async () => {
     // 1 ms deadline against a stub that takes 20 ms per token: the model is mid-turn
@@ -192,6 +214,40 @@ describe('ChatService deadline', () => {
     const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
 
     expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('ends the turn when a tool wedges, instead of waiting on it forever', async () => {
+    // The deadline used to cover only model streaming, so a tool that never
+    // returned held the turn — and the Stop button — open indefinitely.
+    const chat = chatServiceWithWedgedTool(50);
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+    const last = events.at(-1);
+
+    expect(last?.type).toBe('error');
+    expect(last).toMatchObject({ error: expect.stringContaining('did not answer within') });
+    // One timeout, not one "tool failed" observation per call in the batch.
+    expect(events.filter((event) => event.type === 'tool')).toEqual([]);
+  });
+
+  it('lets the caller stop a turn that is stuck inside a tool', async () => {
+    const chat = chatServiceWithWedgedTool(60_000);
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, 20);
+
+    try {
+      const events = await collect(
+        chat.stream({ message: 'where do we authenticate?' }, controller.signal),
+      );
+      const last = events.at(-1);
+
+      expect(last?.type).toBe('error');
+      expect(JSON.stringify(last)).not.toContain('did not answer within');
+    } finally {
+      clearTimeout(timer);
+    }
   });
 
   it('does not keep the process alive after a fast reply', async () => {

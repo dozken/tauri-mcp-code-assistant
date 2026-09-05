@@ -50,6 +50,31 @@ export class ChatTimeoutError extends Error {
 const isTimeout = (signal: AbortSignal): boolean =>
   signal.aborted && (signal.reason as { name?: string } | undefined)?.name === 'TimeoutError';
 
+/**
+ * Settles as soon as either the work or the signal does.
+ *
+ * A tool is handed the signal and is free to ignore it — an MCP tool is a
+ * separate process, and nothing here can reach into it. Racing the signal caps
+ * the turn either way: the call is left to finish and its result discarded,
+ * which is the most that can be done from this side. The listener is removed
+ * once the work settles so a turn full of tool calls does not accumulate them.
+ */
+const raceAbort = async <T>(work: Promise<T>, signal?: AbortSignal): Promise<T> => {
+  if (signal === undefined) return work;
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(signal.reason as Error);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    // Attaching handlers here is also what keeps a late rejection from the
+    // discarded call from surfacing as an unhandled one.
+    void work.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+    });
+  });
+};
+
 /** Either the bare model or the same model with tools bound; both stream chunks. */
 type ChatModelLike = Runnable<BaseLanguageModelInput, AIMessageChunk>;
 
@@ -160,7 +185,12 @@ export class ChatService {
         const requested = turn.reply.tool_calls ?? [];
         if (requested.length === 0) break;
 
-        for await (const invocation of this.runToolCalls(toolsByName, requested, messages)) {
+        for await (const invocation of this.runToolCalls(
+          toolsByName,
+          requested,
+          messages,
+          deadline.signal,
+        )) {
           toolCalls.push(invocation);
           yield { type: 'tool', conversationId, tool: invocation };
         }
@@ -225,9 +255,10 @@ export class ChatService {
     tools: ReadonlyMap<string, StructuredToolInterface>,
     calls: readonly { id?: string; name: string; args: Record<string, unknown> }[],
     messages: BaseMessage[],
+    signal?: AbortSignal,
   ): AsyncGenerator<ToolInvocation> {
     for (const call of calls) {
-      const invocation = await this.runTool(tools, call.name, call.args);
+      const invocation = await this.runTool(tools, call.name, call.args, signal);
       messages.push(
         new ToolMessage({
           content: invocation.result,
@@ -277,6 +308,7 @@ export class ChatService {
     tools: ReadonlyMap<string, StructuredToolInterface>,
     name: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<ToolInvocation> {
     const startedAt = Date.now();
     const tool = tools.get(name);
@@ -292,7 +324,7 @@ export class ChatService {
     }
 
     try {
-      const output: unknown = await tool.invoke(args);
+      const output: unknown = await raceAbort(tool.invoke(args, { signal }), signal);
       return {
         name,
         args,
@@ -301,8 +333,13 @@ export class ChatService {
         failed: false,
       };
     } catch (error) {
-      // Surfaced back to the model as an observation: a failed tool should let the
-      // agent recover, not abort the whole conversation.
+      // A deadline or a Stop is the turn ending, not this tool failing. Letting it
+      // propagate reports one timeout instead of turning every remaining call in
+      // the batch into its own "tool failed" observation.
+      if (signal?.aborted === true) throw error;
+
+      // Otherwise: surfaced back to the model as an observation, so a failed tool
+      // lets the agent recover rather than aborting the whole conversation.
       const reason = error instanceof Error ? error.message : String(error);
       this.logger.warn({ err: error, tool: name }, 'Tool call failed');
       return {
