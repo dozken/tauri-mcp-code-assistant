@@ -470,6 +470,19 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:3001/status
 to switch the guard off, or `COMPANION_TOKEN` to pin the token; the backend logs `auth=on|off` at
 startup and warns loudly when it is off.
 
+#### A fuse on the two routes that cost something
+
+`POST /chat` spends money against a real `OPENAI_API_KEY` and `POST /index` walks a
+filesystem. Both are capped per window (60 and 30 a minute by default, `RATE_LIMIT_*` to
+change, `RATE_LIMIT_ENABLED=false` to remove), and a request past the cap gets a `429` that
+names the setting and says how long to wait.
+
+This is not anti-abuse: a request that gets that far already carried the token, and every
+caller is the same machine. It is there because a script in a loop is a plausible accident
+and the bill lands on the user. Reads are never limited — the UI polls `/status` and a
+launcher polls `/health` — and the limiter sits _after_ the access guard, so a local process
+without the token cannot spend the budget and lock the real client out.
+
 #### Credentials are refused, whoever asks
 
 The allow-list answers "may this process touch that folder". It does not answer "is this file the
@@ -587,6 +600,8 @@ Three rules the runtime enforces, and one it does not:
 
 - Watching uses `fs.watch` with `recursive: true`, which not every platform and filesystem
   supports; where it is missing the app says so and falls back to indexing on request.
+- The rate limit is a per-route fuse, not a per-caller quota: every request comes from the
+  same machine, so there is nothing to tell two local callers apart.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
 - `.gitignore` is read from the folder root only, not from nested directories.
 - Chat history is held by the client and replayed on each turn; there is no server-side session.

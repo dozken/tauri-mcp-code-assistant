@@ -6,6 +6,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -36,7 +37,7 @@ const PROGRESS_INTERVAL_MS = 100;
 const NUL_BYTE = String.fromCharCode(0);
 
 @Injectable()
-export class IndexingService implements OnModuleInit {
+export class IndexingService implements OnModuleInit, OnModuleDestroy {
   private readonly progressSubject = new Subject<IndexProgressEvent>();
   private readonly roots = new Map<string, IndexedRoot>();
   private activeJob: IndexJob | null = null;
@@ -132,6 +133,16 @@ export class IndexingService implements OnModuleInit {
       // Released only after `activeJob` is set, so the slot is never briefly free.
       this.starting = false;
     }
+  }
+
+  /**
+   * A job outliving the app writes into a closed database and logs a stack trace
+   * for it. Shutting down is not the moment to discover the metadata store has
+   * gone: stop the work first, and the partial index is picked up incrementally
+   * next time anyway.
+   */
+  onModuleDestroy(): void {
+    this.cancel();
   }
 
   cancel(): boolean {

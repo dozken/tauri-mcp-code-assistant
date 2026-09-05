@@ -91,6 +91,15 @@ export interface AppConfig {
     readonly serverCommand: string;
     readonly serverArgs: string[];
   };
+  /**
+   * A fuse against a runaway local script, not a quota. See `rate-limit.ts`.
+   */
+  readonly rateLimit: {
+    readonly enabled: boolean;
+    readonly windowMs: number;
+    readonly chatPerWindow: number;
+    readonly indexPerWindow: number;
+  };
   readonly metadataDb: string;
 }
 
@@ -188,6 +197,12 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       clientEnabled: bool(env.MCP_CLIENT_ENABLED, false),
       serverCommand: env.MCP_SERVER_COMMAND ?? process.execPath,
       serverArgs: list(env.MCP_SERVER_ARGS, [resolve(process.cwd(), 'dist/mcp-server.js')]),
+    },
+    rateLimit: {
+      enabled: bool(env.RATE_LIMIT_ENABLED, true),
+      windowMs: num(env.RATE_LIMIT_WINDOW_MS, 60_000),
+      chatPerWindow: num(env.RATE_LIMIT_CHAT, 60),
+      indexPerWindow: num(env.RATE_LIMIT_INDEX, 30),
     },
     metadataDb: env.METADATA_DB ?? resolve(process.cwd(), '.data/metadata.sqlite'),
   };

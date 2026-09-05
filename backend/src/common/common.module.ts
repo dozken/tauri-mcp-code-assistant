@@ -3,6 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { PinoLogger } from 'nestjs-pino';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { LocalAccessGuard } from '../security/local-access.guard.js';
+import { RateLimitGuard } from '../security/rate-limit.guard.js';
 import { METADATA_STORE, createMetadataStore, type MetadataStore } from './metadata-store.js';
 
 /** Closes the SQLite handle on shutdown so nothing is left half-written. */
@@ -30,6 +31,9 @@ class MetadataStoreLifecycle implements OnApplicationShutdown {
     // Global, so a new endpoint is protected because it exists rather than
     // because someone remembered to decorate it.
     { provide: APP_GUARD, useClass: LocalAccessGuard },
+    // After it, deliberately: an unauthenticated caller must not be able to spend
+    // the budget and lock the real client out of its own backend.
+    { provide: APP_GUARD, useClass: RateLimitGuard },
   ],
   exports: [METADATA_STORE],
 })
