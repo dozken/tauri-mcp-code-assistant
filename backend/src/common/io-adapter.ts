@@ -3,7 +3,7 @@ import { IoAdapter } from '@nestjs/platform-socket.io';
 import type { INestApplicationContext } from '@nestjs/common';
 import type { Server, ServerOptions } from 'socket.io';
 import type { AppConfig } from '../config/configuration.js';
-import { decideAccess } from './local-access.js';
+import { decideAccess } from '../security/local-access.js';
 
 /**
  * Applies the access policy to the Socket.IO handshake as well as to HTTP.

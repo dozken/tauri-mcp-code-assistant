@@ -49,6 +49,35 @@ export const useBackend = () => {
       store().setError(`Cannot reach the backend: ${error.message}`);
     };
 
+    /**
+     * Tokens are coalesced to one store write per frame.
+     *
+     * One write per token meant one React render per token. socket.io can deliver
+     * a burst of buffered packets in a single tick, and past React's nested-update
+     * limit that threw "Maximum update depth exceeded" — the answer simply stopped
+     * rendering mid-stream. Batching fixes the crash and the per-token render cost
+     * together, and the flush before every ordering-sensitive event keeps
+     * `tool`/`done`/`error` strictly after the text that preceded them.
+     */
+    let pendingTokens = '';
+    let frame: number | undefined;
+
+    const flushTokens = (): void => {
+      if (frame !== undefined) {
+        cancelAnimationFrame(frame);
+        frame = undefined;
+      }
+      if (pendingTokens === '') return;
+      const chunk = pendingTokens;
+      pendingTokens = '';
+      store().appendToken(chunk);
+    };
+
+    const queueToken = (token: string): void => {
+      pendingTokens += token;
+      frame ??= requestAnimationFrame(flushTokens);
+    };
+
     // Each subscription hands back its own teardown, so `off` cannot drift from `on`.
     const disposers: (() => void)[] = [];
 
@@ -85,21 +114,27 @@ export const useBackend = () => {
       if (event.state !== 'running') void refreshStatus();
     });
     onValidated(SOCKET_EVENTS.chatToken, chatTokenEventSchema, (event) => {
-      store().appendToken(event.token);
+      queueToken(event.token);
     });
     onValidated(SOCKET_EVENTS.chatTool, chatToolEventSchema, (event) => {
+      flushTokens();
       store().addToolCall(event.tool);
     });
     onValidated(SOCKET_EVENTS.chatDone, chatDoneEventSchema, (event) => {
+      flushTokens();
       store().completeAssistantMessage(event.message);
     });
     onValidated(SOCKET_EVENTS.chatError, chatErrorEventSchema, (event) => {
+      flushTokens();
       store().failAssistantMessage(event.error);
     });
 
     if (socket.connected) onConnect();
 
     return () => {
+      // Anything already buffered belongs to the transcript, so land it before
+      // tearing the subscriptions down.
+      flushTokens();
       for (const dispose of disposers) dispose();
     };
   }, [refreshStatus]);

@@ -15,6 +15,9 @@ export interface ChatPanelProps {
   onSend: (message: string) => void;
 }
 
+/** Slack in pixels within which the transcript still counts as scrolled to the end. */
+const PINNED_TO_BOTTOM_PX = 80;
+
 const EXAMPLES = [
   'Where is authentication handled?',
   'Explain the indexing service',
@@ -31,9 +34,19 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
 
   const [draft, setDraft] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const list = listRef.current;
+    if (!list) return;
+    // Only follow the stream while the reader is already at the bottom. Scrolling
+    // up mid-answer to re-read something used to be impossible: every token
+    // yanked the view back down.
+    const distanceFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+    if (distanceFromBottom > PINNED_TO_BOTTOM_PX) return;
+    // `auto`, not `smooth`: a smooth scroll per token never finishes before the
+    // next one starts, so the view lurches instead of following.
+    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'auto' });
   }, [messages]);
 
   const submit = (text: string): void => {
@@ -45,7 +58,17 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
 
   return (
     <Stack sx={{ height: '100%', minWidth: 0 }}>
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }} data-testid="message-list">
+      <Box
+        ref={listRef}
+        // A chat transcript is a log: announce new answers, and let a keyboard
+        // user scroll the region without a pointer.
+        role="log"
+        aria-live="polite"
+        aria-label="Conversation"
+        tabIndex={0}
+        sx={{ flex: 1, overflowY: 'auto', p: 2 }}
+        data-testid="message-list"
+      >
         {messages.length === 0 ? (
           <Stack
             spacing={2}
@@ -53,8 +76,8 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
           >
             <Typography variant="h6">Ask something about your codebase</Typography>
             <Typography variant="body2" color="text.secondary">
-              Add a folder on the left, then ask a question. Answers are grounded in retrieved
-              snippets.
+              Index a folder, then ask a question. Answers are grounded in the snippets retrieved
+              from it.
             </Typography>
             <Stack
               direction="row"
@@ -69,6 +92,14 @@ export const ChatPanel = ({ onSend }: ChatPanelProps) => {
                   variant="outlined"
                   onClick={() => submit(example)}
                   disabled={!connected}
+                  // Without this a chip wider than the column is clipped by the
+                  // viewport instead of wrapping — flex-wrap cannot break one item.
+                  sx={{
+                    maxWidth: '100%',
+                    height: 'auto',
+                    py: 0.5,
+                    '& .MuiChip-label': { whiteSpace: 'normal' },
+                  }}
                 />
               ))}
             </Stack>

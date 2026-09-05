@@ -2,7 +2,7 @@ import { Global, Inject, Injectable, Module, type OnApplicationShutdown } from '
 import { APP_GUARD } from '@nestjs/core';
 import { PinoLogger } from 'nestjs-pino';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
-import { LocalAccessGuard } from './local-access.guard.js';
+import { LocalAccessGuard } from '../security/local-access.guard.js';
 import { METADATA_STORE, createMetadataStore, type MetadataStore } from './metadata-store.js';
 
 /** Closes the SQLite handle on shutdown so nothing is left half-written. */

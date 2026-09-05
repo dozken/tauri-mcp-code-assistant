@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
 import type { ToolInvocation } from '@ai-code-companion/contracts';
 import { MessageBubble } from './MessageBubble';
-import { theme } from '../theme';
+import { theme } from '../theme/theme';
 import type { ChatMessage } from '../types';
 
 const message = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({

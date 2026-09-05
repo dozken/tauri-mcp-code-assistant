@@ -12,7 +12,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Subject, type Observable } from 'rxjs';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { METADATA_STORE, type MetadataStore } from '../common/metadata-store.js';
-import { resolveWithinRoots } from '../common/path-guard.js';
+import { resolveWithinRoots } from '../security/path-guard.js';
 import { VectorStoreService } from '../vector/vector-store.service.js';
 import type { CodeChunk } from '../vector/vector-store.types.js';
 import { chunkText, detectLanguage } from './chunker.js';
@@ -34,7 +34,17 @@ export class IndexingService implements OnModuleInit {
   private readonly progressSubject = new Subject<IndexProgressEvent>();
   private readonly roots = new Map<string, IndexedRoot>();
   private activeJob: IndexJob | null = null;
+  /**
+   * Claimed synchronously, before the first `await`. The `activeJob` guard alone
+   * is a time-of-check/time-of-use race: `resolveRoot` yields, so two POSTs
+   * arriving together both saw `activeJob === null` and both started a job. The
+   * second then overwrote `abortController`, leaving the first uncancellable and
+   * `/status` reporting no active job while one was still writing.
+   */
+  private starting = false;
   private abortController: AbortController | null = null;
+  /** Roots deleted mid-run, so a finishing job cannot resurrect them. */
+  private readonly removedDuringRun = new Set<string>();
   private lastEmit = 0;
 
   constructor(
@@ -72,29 +82,37 @@ export class IndexingService implements OnModuleInit {
   }
 
   async startIndexing(inputPath: string): Promise<IndexJob> {
-    if (this.activeJob) {
-      throw new ConflictException(`Indexing already running for ${this.activeJob.root}`);
+    if (this.activeJob ?? this.starting) {
+      throw new ConflictException(
+        `Indexing already running for ${this.activeJob?.root ?? 'another folder'}`,
+      );
     }
+    this.starting = true;
 
-    const root = await this.resolveRoot(inputPath);
-    const job: IndexJob = {
-      id: randomUUID(),
-      root,
-      state: 'running',
-      filesDiscovered: 0,
-      filesIndexed: 0,
-      chunksIndexed: 0,
-      startedAt: new Date().toISOString(),
-    };
+    try {
+      const root = await this.resolveRoot(inputPath);
+      const job: IndexJob = {
+        id: randomUUID(),
+        root,
+        state: 'running',
+        filesDiscovered: 0,
+        filesIndexed: 0,
+        chunksIndexed: 0,
+        startedAt: new Date().toISOString(),
+      };
 
-    this.activeJob = job;
-    this.abortController = new AbortController();
-    this.emit(job, true);
+      this.activeJob = job;
+      this.abortController = new AbortController();
+      this.emit(job, true);
 
-    // Deliberately not awaited: POST /index returns as soon as the job is accepted
-    // and the client follows progress over Socket.IO.
-    void this.run(job, this.abortController.signal);
-    return job;
+      // Deliberately not awaited: POST /index returns as soon as the job is accepted
+      // and the client follows progress over Socket.IO.
+      void this.run(job, this.abortController.signal);
+      return job;
+    } finally {
+      // Released only after `activeJob` is set, so the slot is never briefly free.
+      this.starting = false;
+    }
   }
 
   cancel(): boolean {
@@ -122,8 +140,17 @@ export class IndexingService implements OnModuleInit {
       ? candidate
       : await realpath(candidate).catch(() => candidate);
 
-    if (!this.roots.has(root)) {
+    // A folder being indexed for the first time is not in `roots` yet, but it is
+    // very much removable: without this the delete failed as "not indexed" and the
+    // folder then appeared anyway when the job finished.
+    const indexing = this.activeJob?.root === root;
+    if (!this.roots.has(root) && !indexing) {
       throw new NotFoundException(`Not an indexed folder: ${root}`);
+    }
+    // A job still writing to this root would re-create the record in its `finally`.
+    if (indexing) {
+      this.removedDuringRun.add(root);
+      this.cancel();
     }
     await this.vectorStore.deleteByRoot(root);
     await this.metadata.removeRoot(root);
@@ -158,7 +185,8 @@ export class IndexingService implements OnModuleInit {
       job.finishedAt = new Date().toISOString();
       job.currentFile = undefined;
 
-      if (job.state === 'completed' || job.state === 'cancelled') {
+      const resurrects = this.removedDuringRun.delete(job.root);
+      if (!resurrects && (job.state === 'completed' || job.state === 'cancelled')) {
         const record = {
           path: job.root,
           fileCount: job.filesIndexed,

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
 import { App } from './App';
 import { initialState, useAppStore } from './store/appStore';
-import { theme } from './theme';
+import { theme } from './theme/theme';
 
 const sendMessage = vi.fn();
 const indexFolder = vi.fn();

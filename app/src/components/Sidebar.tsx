@@ -23,7 +23,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { useAppStore } from '../store/appStore';
 import { cancelIndexing, removeRoot } from '../api/http';
 import { getAppInfo, pickFolder, type AppInfo } from '../api/tauri';
-import { MONOSPACE } from '../theme';
+import { MONOSPACE } from '../theme/theme';
 
 export interface SidebarProps {
   onIndexFolder: (path: string) => void | Promise<void>;

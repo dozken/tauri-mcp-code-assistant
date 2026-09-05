@@ -2,7 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import ignore, { type Ignore } from 'ignore';
-import { isSensitiveDirectory, isSensitivePath } from '../common/secret-files.js';
+import { isSensitiveDirectory, isSensitivePath } from '../security/secret-files.js';
 
 export interface WalkedFile {
   readonly absolutePath: string;

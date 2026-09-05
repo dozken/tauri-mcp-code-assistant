@@ -54,10 +54,20 @@ module.exports = {
       name: 'shared-layers-stay-shared',
       severity: 'error',
       comment:
-        'common/ and config/ are imported by every feature; importing a feature back ' +
-        'would make them un-reusable and create a cycle.',
-      from: { path: '^backend/src/(common|config)/' },
+        'common/, config/ and security/ are imported by every feature; importing a ' +
+        'feature back would make them un-reusable and create a cycle.',
+      from: { path: '^backend/src/(common|config|security)/' },
       to: { path: '^backend/src/(chat|indexing|tools|vector|mcp|llm|events)/' },
+    },
+    {
+      name: 'security-depends-on-nothing-local',
+      severity: 'error',
+      comment:
+        'The access policy, the path allow-list and the credential deny-list are the ' +
+        'whole threat model. They may read config, and nothing else in the app - a rule ' +
+        'that stays reviewable only while its inputs stay this small.',
+      from: { path: '^backend/src/security/' },
+      to: { path: '^backend/src/(?!security/|config/)' },
     },
     {
       name: 'vector-is-a-leaf',

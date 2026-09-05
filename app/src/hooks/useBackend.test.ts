@@ -27,8 +27,13 @@ class FakeSocket {
   /** Simulates the server pushing an event. */
   receive(event: string, payload?: unknown): void {
     act(() => {
-      for (const handler of this.handlers.get(event) ?? []) handler(payload);
+      this.receiveRaw(event, payload);
     });
+  }
+
+  /** Delivers without its own `act`, so a caller can batch a burst into one. */
+  receiveRaw(event: string, payload?: unknown): void {
+    for (const handler of this.handlers.get(event) ?? []) handler(payload);
   }
 
   listenerCount(event: string): number {
@@ -147,6 +152,34 @@ describe('useBackend', () => {
       content: 'Hi there',
       streaming: false,
     });
+  });
+
+  it('coalesces a burst of tokens into one store write', async () => {
+    renderHook(() => useBackend());
+    act(() => {
+      useAppStore.getState().beginAssistantMessage();
+    });
+
+    // A single tick delivering many packets is what socket.io actually does when
+    // the model streams faster than the socket flushes. One React update per
+    // token used to exceed React's nested-update limit and stop the render.
+    const writes: number[] = [];
+    const unsubscribe = useAppStore.subscribe(() => writes.push(1));
+    act(() => {
+      for (let index = 0; index < 200; index += 1) {
+        socket.receiveRaw(SOCKET_EVENTS.chatToken, {
+          conversationId: 'c',
+          type: 'token',
+          token: 'x',
+        });
+      }
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().messages[0]?.content).toBe('x'.repeat(200));
+    });
+    unsubscribe();
+    expect(writes.length).toBeLessThan(200);
   });
 
   it('records a streamed error on the message', () => {

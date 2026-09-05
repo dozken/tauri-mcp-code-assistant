@@ -10,7 +10,7 @@ import {
   type IndexStatus,
   type RemoveRootQuery,
 } from '@ai-code-companion/contracts';
-import { Public } from '../common/local-access.guard.js';
+import { Public } from '../security/local-access.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { IndexingService } from './indexing.service.js';
 

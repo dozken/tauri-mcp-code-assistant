@@ -110,10 +110,12 @@ Copy `.env.example` for the full list of settings.
 │   │   ├── api/                    # http.ts, socket.ts, tauri.ts (guarded IPC)
 │   │   ├── components/             # Sidebar, ChatPanel, MessageBubble
 │   │   ├── hooks/useBackend.ts     # socket ⇄ store wiring, send/index actions
+│   │   ├── markdown/               # the rendered subset, parsed to data not HTML
 │   │   ├── store/appStore.ts       # Zustand: pure state + synchronous mutators
+│   │   ├── theme/                  # both palettes + the OS-preference provider
 │   │   └── types.ts                # UI-only types (everything else is a contract)
 │   ├── src-tauri/                  # Rust shell: tauri.conf.json, capabilities, app_info
-│   ├── e2e/chat.spec.ts            # Playwright
+│   ├── e2e/                        # Playwright: chat + axe in both themes
 │   └── {vite,vitest,playwright,stryker}.config.*
 │
 └── backend/                        # NestJS 11
@@ -124,11 +126,19 @@ Copy `.env.example` for the full list of settings.
     │   ├── tools/                  # CodeToolsService, outline tokenizer, formatters
     │   ├── mcp/                    # MCP registration + @langchain/mcp-adapters client
     │   ├── llm/                    # StubChatModel + provider factory
-    │   ├── common/                 # pino, SQLite metadata, path guard, zod pipe
+    │   ├── security/               # the whole threat model: access policy, guard,
+    │   │                           #   path allow-list, credential deny-list
+    │   ├── common/                 # pino, SQLite metadata, zod pipe, socket adapter
     │   └── mcp-server.ts           # MCP stdio entry point
     ├── test/                       # Nest container tests (HTTP + Socket.IO) and MCP
     └── {vitest,stryker}.config.*
 ```
+
+`security/` is its own layer rather than a corner of `common/`, and an executable
+dependency-cruiser rule (`security-depends-on-nothing-local`) holds it there: the
+access policy, the path allow-list and the credential deny-list may read `config/`
+and nothing else in the app. A rule that decides what the process may read stays
+reviewable only while its inputs stay that small.
 
 `packages/contracts` is the load-bearing piece. One zod schema per type that crosses
 a process boundary, and four consumers of each: the Nest request pipe, the LangChain
@@ -288,12 +298,14 @@ npm run mutation          # Stryker across all three workspaces
 | `backend/src/llm/*.spec.ts`                | The stub model's tool-calling and streaming contract, provider selection              |
 | `backend/src/chat/chat.service.spec.ts`    | The agent loop: retrieve → observe → stream, and tool-failure recovery                |
 | `backend/src/common/*.spec.ts`             | Zod pipe error shape, both metadata stores against one shared contract                |
+| `backend/src/security/*.spec.ts`           | The access decision matrix, loopback parsing, and the credential deny-list            |
 | `backend/test/api.e2e.spec.ts`             | The real Nest app over HTTP: routing, validation errors, contract conformance         |
 | `backend/test/gateway.e2e.spec.ts`         | A real Socket.IO client: streamed turns, malformed payloads, progress broadcast       |
 | `backend/test/mcp-server.spec.ts`          | Real MCP `initialize`/`tools/list`/`tools/call` over an in-memory transport           |
 | `app/src/api/*.test.ts`                    | HTTP error mapping, contract rejection, the Tauri bridge in both environments         |
 | `app/src/hooks/useBackend.test.ts`         | Socket wiring, payload validation, listener teardown, send/index actions              |
-| `app/src/components/*.test.tsx`            | Composer behaviour, fence rendering, folder list, progress and cancel                 |
+| `app/src/components/*.test.tsx`            | Composer behaviour, folder list, progress and cancel                                  |
+| `app/src/markdown/parse.test.ts`           | The Markdown subset: nesting, snake_case and dunder safety, streaming fences          |
 | `app/e2e/chat.spec.ts`                     | Ask → answer, index → cite, and a rejected path, in a real browser                    |
 
 Playwright drives the browser build of the same React app (Tauri's webview is not
@@ -409,7 +421,7 @@ The backend reads local files, so:
 #### Authenticating the local API
 
 Binding to loopback is not a security boundary. Two attackers reach `127.0.0.1:3001` with no
-network access at all, and `backend/src/common/local-access.ts` answers both:
+network access at all, and `backend/src/security/local-access.ts` answers both:
 
 | Attacker                        | Why CORS alone fails                                                                                          | What stops it                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -439,7 +451,7 @@ startup and warns loudly when it is off.
 
 The allow-list answers "may this process touch that folder". It does not answer "is this file the
 kind of thing nobody meant to share" — and it cannot, because the default allowed root is `$HOME`,
-which already contains `~/.ssh` and `~/.aws`. `backend/src/common/secret-files.ts` answers the
+which already contains `~/.ssh` and `~/.aws`. `backend/src/security/secret-files.ts` answers the
 second question, and **three** readers consult it, because blocking only the obvious one moves the
 leak rather than closing it:
 

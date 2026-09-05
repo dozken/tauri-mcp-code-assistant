@@ -202,4 +202,39 @@ describe('IndexingService', () => {
     expect(status.roots[0]!.fileCount).toBe(3);
     spy.mockRestore();
   });
+
+  describe('one job at a time', () => {
+    it('accepts only one of two requests that arrive together', async () => {
+      // The guard used to be checked before `resolveRoot`, which awaits. Both
+      // requests saw no active job, both started, and the second overwrote the
+      // abort controller — leaving the first uncancellable and /status reporting
+      // idle while it was still writing.
+      const results = await Promise.allSettled([
+        service.startIndexing(root),
+        service.startIndexing(root),
+      ]);
+
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+      await settle(service);
+    });
+
+    it('accepts a second job once the first has finished', async () => {
+      await service.startIndexing(root);
+      await settle(service);
+
+      await expect(service.startIndexing(root)).resolves.toMatchObject({ state: 'running' });
+      await settle(service);
+    });
+
+    it('does not resurrect a folder deleted while it was being indexed', async () => {
+      await service.startIndexing(root);
+      await service.removeRoot(root);
+      await settle(service);
+
+      const status = await service.getStatus();
+      expect(status.roots.map((entry) => entry.path)).not.toContain(root);
+      expect(await metadata.listRoots()).toEqual([]);
+    });
+  });
 });

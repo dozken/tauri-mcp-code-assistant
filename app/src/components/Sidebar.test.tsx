@@ -6,7 +6,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import type { IndexProgressEvent, IndexedRoot } from '@ai-code-companion/contracts';
 import { Sidebar } from './Sidebar';
 import { initialState, useAppStore } from '../store/appStore';
-import { theme } from '../theme';
+import { theme } from '../theme/theme';
 
 const pickFolder = vi.fn<() => Promise<string | null | undefined>>();
 const getAppInfo = vi.fn<() => Promise<unknown>>();

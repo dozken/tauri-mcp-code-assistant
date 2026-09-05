@@ -3,9 +3,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
 import { ChatPanel } from './ChatPanel';
-import { splitFences } from './MessageBubble';
 import { initialState, useAppStore } from '../store/appStore';
-import { theme } from '../theme';
+import { theme } from '../theme/theme';
 
 const renderPanel = (onSend: (message: string) => void) =>
   render(
@@ -13,55 +12,6 @@ const renderPanel = (onSend: (message: string) => void) =>
       <ChatPanel onSend={onSend} />
     </ThemeProvider>,
   );
-
-describe('splitFences', () => {
-  it('separates prose from fenced code and records the language', () => {
-    expect(splitFences('Here:\n```ts\nconst a = 1;\n```\nDone.')).toEqual([
-      { kind: 'text', content: 'Here:' },
-      { kind: 'code', language: 'ts', content: 'const a = 1;' },
-      { kind: 'text', content: 'Done.' },
-    ]);
-  });
-
-  it('renders a fence that is still streaming (no closing marker yet)', () => {
-    expect(splitFences('```ts\nconst a =')).toEqual([
-      { kind: 'code', language: 'ts', content: 'const a =' },
-    ]);
-  });
-
-  it('keeps an inner ``` intact inside a widened fence', () => {
-    expect(splitFences('````md\nSee:\n```ts\nconst a = 1;\n```\n````')).toEqual([
-      { kind: 'code', language: 'md', content: 'See:\n```ts\nconst a = 1;\n```' },
-    ]);
-  });
-
-  it('does not close a ```` block on a shorter inner fence', () => {
-    const segments = splitFences('````\n```\nstill inside\n```\n````');
-
-    expect(segments).toHaveLength(1);
-    expect(segments[0]!.content).toBe('```\nstill inside\n```');
-  });
-
-  it('ignores a fence-like sequence that is not alone on its line', () => {
-    expect(splitFences('```ts\nconst fence = "```";\n```')).toEqual([
-      { kind: 'code', language: 'ts', content: 'const fence = "```";' },
-    ]);
-  });
-
-  it('omits the language when the fence carries no info string', () => {
-    expect(splitFences('```\nplain\n```')).toEqual([
-      { kind: 'code', language: undefined, content: 'plain' },
-    ]);
-  });
-
-  it('treats plain text as a single segment', () => {
-    expect(splitFences('just words')).toEqual([{ kind: 'text', content: 'just words' }]);
-  });
-
-  it('drops whitespace-only segments', () => {
-    expect(splitFences('   \n\n  ')).toEqual([]);
-  });
-});
 
 describe('ChatPanel', () => {
   beforeEach(() => {
