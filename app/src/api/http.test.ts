@@ -134,3 +134,67 @@ describe('http client', () => {
     await expect(fetchStatus()).rejects.toThrow('Failed to fetch');
   });
 });
+
+describe('http client details the UI branches on', () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('names its error types, which is how the UI tells skew from a network fault', () => {
+    // `useBackend` branches on these to decide between "the backend is down" and
+    // "the app and the backend disagree"; an anonymous Error reads as the former.
+    expect(new HttpError('boom', 500).name).toBe('HttpError');
+    expect(new ContractError('/status', 'bad').name).toBe('ContractError');
+  });
+
+  it('says which route drifted, and how, in a contract error', () => {
+    const error = new ContractError('/status', 'expected number');
+
+    expect(error.message).toContain('/status');
+    expect(error.message).toContain('expected number');
+  });
+
+  it('joins several contract violations rather than reporting only the first', async () => {
+    fetchMock.mockResolvedValue(
+      respond({ ...status, totalChunks: 'lots', vectorStore: 'pinecone' }),
+    );
+
+    await expect(fetchStatus()).rejects.toMatchObject({
+      name: 'ContractError',
+      message: expect.stringContaining(', '),
+    });
+  });
+
+  it('accepts a 204 with no body where a schema was given', async () => {
+    // `removeRoot` answers 204. Parsing an empty body against a schema would
+    // reject a perfectly successful delete.
+    fetchMock.mockResolvedValue(respond(undefined, { status: 204 }));
+
+    await expect(removeRoot('/repo')).resolves.toBeUndefined();
+  });
+
+  it('does not parse a body when no schema was asked for', async () => {
+    fetchMock.mockResolvedValue(respond({ unexpected: 'shape' }));
+
+    await expect(removeRoot('/repo')).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ['cancelIndexing', () => cancelIndexing(), 'POST', /\/index\/cancel$/],
+    ['removeRoot', () => removeRoot('/repo'), 'DELETE', /\/index\?path=/],
+  ])('sends %s as a %s', async (_label, call, method, route) => {
+    // The route and the verb together are the request; a GET to /index/cancel is
+    // a different operation that silently does nothing.
+    fetchMock.mockResolvedValue(respond({ cancelled: true }));
+
+    await call();
+
+    expect(lastCall().init.method).toBe(method);
+    expect(lastCall().url).toMatch(route);
+  });
+});

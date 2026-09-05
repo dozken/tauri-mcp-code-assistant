@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
 import { App } from './App';
@@ -126,9 +126,28 @@ describe('App', () => {
       expect(screen.getByTestId('add-folder')).toBeVisible();
     });
 
-    it('offers no menu button at desktop width', () => {
+    it('closes the overlay again on a scrim click', async () => {
+      // `onClose` is the only way back out of the overlay on a narrow window;
+      // without it the drawer covers the transcript until the window is resized.
+      beCompact();
       renderApp();
 
+      await userEvent.click(screen.getByRole('button', { name: 'Show indexed folders' }));
+      expect(screen.getByTestId('add-folder')).toBeVisible();
+
+      await userEvent.keyboard('{Escape}');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('add-folder')).not.toBeVisible();
+      });
+    });
+
+    it('keeps the permanent drawer open at desktop width, with no button to open it', () => {
+      renderApp();
+
+      // The permanent drawer is not togglable: `open` is unconditionally true, so
+      // the folder list is on screen without anything to click.
+      expect(screen.getByTestId('add-folder')).toBeVisible();
       expect(screen.queryByRole('button', { name: 'Show indexed folders' })).toBeNull();
       expect(screen.getByTestId('add-folder')).toBeVisible();
     });

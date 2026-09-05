@@ -176,3 +176,62 @@ describe('ChatPanel', () => {
     expect(screen.getByTestId('message-user')).toHaveTextContent('hi');
   });
 });
+
+describe('ChatPanel follows the stream only when the reader is at the bottom', () => {
+  /**
+   * jsdom lays nothing out, so every scroll property is 0. Defining them on the
+   * prototype lets the component read a scroll position that a real browser would
+   * have produced, which is the only thing the effect branches on.
+   */
+  const pretendScrolled = (distanceFromBottom: number): void => {
+    for (const [property, value] of [
+      ['scrollHeight', 1000],
+      ['clientHeight', 500],
+      ['scrollTop', 500 - distanceFromBottom],
+    ] as const) {
+      Object.defineProperty(HTMLElement.prototype, property, {
+        configurable: true,
+        get: () => value,
+      });
+    }
+  };
+
+  const scrollIntoView = vi.fn();
+
+  beforeEach(() => {
+    useAppStore.setState({ ...initialState, messages: [], connected: true });
+    scrollIntoView.mockReset();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+  });
+
+  it('scrolls to the newest message when already pinned to the bottom', () => {
+    pretendScrolled(0);
+
+    renderPanel(vi.fn());
+    act(() => {
+      useAppStore.getState().addUserMessage('a question');
+    });
+
+    expect(scrollIntoView).toHaveBeenCalled();
+    // `auto`, not `smooth`: a smooth scroll per token never finishes before the
+    // next token starts, and the view lurches instead of following.
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'end', behavior: 'auto' });
+  });
+
+  it('leaves the view alone when the reader has scrolled up mid-answer', () => {
+    // The bug this guards: scrolling up to re-read something was impossible,
+    // because every streamed token yanked the view back to the bottom.
+    pretendScrolled(400);
+
+    renderPanel(vi.fn());
+    scrollIntoView.mockReset();
+    act(() => {
+      useAppStore.getState().addUserMessage('a question');
+    });
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});

@@ -64,6 +64,51 @@ describe('MessageBubble', () => {
     expect(screen.queryByText(/search_code/)).not.toBeInTheDocument();
   });
 
+  it('still shows Thinking… while the stream has produced only whitespace', () => {
+    // A model that opens with a newline is common, and `content === ''` misses it:
+    // the placeholder vanishes and the bubble sits visibly empty instead.
+    renderBubble(message({ content: '\n  ', streaming: true }));
+
+    expect(screen.getByText('Thinking…')).toBeInTheDocument();
+  });
+
+  it('renders no tool section markup at all when the list is empty', () => {
+    // `queryByText` alone passes even when an empty accordion renders; the button
+    // is what the user sees and what a keyboard lands on.
+    renderBubble(message());
+
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('paints the user bubble in the accent, and the assistant one on paper', () => {
+    // Colour is what says who is talking. Both bubbles rendering the same, or the
+    // two swapped, is a real defect that no role-based assertion can see.
+    const paperOf = (testId: string): HTMLElement => {
+      const paper = screen.getByTestId(testId).querySelector('.MuiPaper-root');
+      if (!(paper instanceof HTMLElement)) throw new Error(`no bubble inside ${testId}`);
+      return paper;
+    };
+
+    const { unmount } = renderBubble(message({ role: 'user', content: 'q' }));
+    const user = getComputedStyle(paperOf('message-user')).backgroundColor;
+    unmount();
+
+    renderBubble(message({ role: 'assistant', content: 'a' }));
+    const assistant = getComputedStyle(paperOf('message-assistant')).backgroundColor;
+
+    // jsdom reports computed colours as `rgb(...)`, the palette stores hex.
+    const asRgb = (hex: string): string => {
+      const [red = 0, green = 0, blue = 0] = [1, 3, 5].map((offset) =>
+        Number.parseInt(hex.slice(offset, offset + 2), 16),
+      );
+      return `rgb(${String(red)}, ${String(green)}, ${String(blue)})`;
+    };
+
+    expect(user).not.toBe(assistant);
+    expect(user).toBe(asRgb(theme.palette.primary.main));
+    expect(assistant).toBe(asRgb(theme.palette.background.paper));
+  });
+
   it('summarises each tool call as a chip and reveals its output on expand', async () => {
     renderBubble(
       message({ toolCalls: [toolCall(), toolCall({ name: 'explain_file', durationMs: 3 })] }),

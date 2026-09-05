@@ -163,6 +163,45 @@ describe('Sidebar', () => {
     expect(web).not.toHaveClass('Mui-selected');
   });
 
+  it('drops the empty-state row once there is a folder to list', () => {
+    act(() => {
+      useAppStore.setState({ roots: [root()] });
+    });
+    renderSidebar();
+
+    expect(screen.queryByText('No folders yet')).not.toBeInTheDocument();
+  });
+
+  it('marks exactly one folder as scoped, never all of them', async () => {
+    act(() => {
+      useAppStore.setState({ roots: [root(), root({ path: '/home/dev/projects/web' })] });
+    });
+    renderSidebar();
+
+    await userEvent.click(screen.getByText('api'));
+
+    // Every row highlighted says the search is scoped to all of them at once,
+    // which is the opposite of what the filter does.
+    expect(document.querySelectorAll('.Mui-selected')).toHaveLength(1);
+  });
+
+  it.each([
+    ['Cancel', 'Cancel'],
+    ['Index', 'Index'],
+  ])('closes the path dialog on %s', async (_label, button) => {
+    // Left open, the dialog traps focus over the folder list and the app looks
+    // frozen: the click registered, nothing visibly happened.
+    renderSidebar();
+
+    await userEvent.click(screen.getByTestId('add-folder'));
+    await userEvent.type(await screen.findByTestId('manual-path'), '/home/dev/web');
+    await userEvent.click(screen.getByRole('button', { name: button }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('manual-path')).not.toBeInTheDocument();
+    });
+  });
+
   it('ignores an empty path from the dialog', async () => {
     const { onIndexFolder } = renderSidebar();
 

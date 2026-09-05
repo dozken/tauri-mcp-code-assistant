@@ -91,7 +91,9 @@ export const App = () => {
 
       <Drawer
         variant={compact ? 'temporary' : 'permanent'}
-        open={compact ? drawerOpen : true}
+        // The permanent variant ignores `open`, so this only ever drives the
+        // overlay; a `compact ? … : true` ternary here reads as a rule and is not one.
+        open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
         }}
