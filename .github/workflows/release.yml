@@ -8,6 +8,10 @@ on:
       tag:
         description: 'Tag to build (defaults to the current ref)'
         required: false
+      publish:
+        description: 'Publish it, rather than leaving a draft for review'
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -136,11 +140,34 @@ jobs:
           projectPath: app
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: AI Code Companion ${{ inputs.tag || github.ref_name }}
-          # Draft, so a human reads the notes and checks the artefacts before
-          # anyone downloads them.
+          # Draft by default, so a human reads the notes and checks the artefacts
+          # before anyone downloads them. A tag push always drafts; only a manual
+          # run can ask for otherwise, and it has to ask.
           releaseDraft: true
           prerelease: false
           releaseBody: |
             The bundle carries its own backend and starts it on launch — nothing
             to install, no Node on the machine. Point the window at a backend you
             are already running with `COMPANION_BACKEND_URL`.
+
+  # Separate, and last: publishing is one action for the whole release, not one
+  # per platform, and it must not happen until every bundle is attached. A release
+  # published with three of four platforms is worse than no release.
+  #
+  # It also un-drafts a release this run did not create, which is the case that
+  # matters — `tauri-action` reuses an existing draft and leaves its draft flag
+  # alone, so without this a draft from an earlier run stays a draft forever.
+  publish:
+    name: Publish the release
+    if: inputs.publish
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Un-draft, which is also what creates the tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
+          echo "Published: $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)"

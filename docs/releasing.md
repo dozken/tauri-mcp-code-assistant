@@ -3,7 +3,24 @@
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the full gate first — a tag can
 be pushed at any commit, including one CI never saw — then desktop bundles on all three
 platforms, attached to a **draft** release for a human to look over before anyone
-downloads them. macOS builds twice, once per architecture: the sidecar is a copy of the
+downloads them. A draft is invisible on the releases page and has no git tag —
+GitHub creates the tag at publish time, which is why `git ls-remote --tags` shows
+nothing until then.
+
+Publishing is a separate decision, and there are two ways to make it. Click
+**Publish** on the draft, or run the workflow with `publish: true`:
+
+```bash
+gh workflow run release.yml -f tag=v0.1.0 -f publish=true
+```
+
+That builds, attaches, and then un-drafts — as a final job, after every platform
+has finished, because a release published with three of four platforms attached is
+worse than no release. It also un-drafts a release an earlier run created, which
+is the case that needs it: `tauri-action` reuses an existing draft and leaves its
+draft flag alone.
+
+A tag push always drafts. Only a manual run can publish, and it has to ask. macOS builds twice, once per architecture: the sidecar is a copy of the
 build machine's own `node`, so a bundle can only be the architecture it was built on, and
 a universal one would need an x86_64 runtime produced on an arm64 runner.
 
@@ -12,6 +29,10 @@ unsigned bundle rather than a failed release. That takes a step to arrange rathe
 being free — an absent secret reaches the runner as an empty string, not as an absent
 variable, and Tauri reads a defined `APPLE_CERTIFICATE` as "sign with this", so the
 workflow exports the Apple group only when there is a certificate in it.
+
+Bundles are **unsigned** unless the certificates below are configured, so anyone
+downloading a published macOS or Windows build meets Gatekeeper or SmartScreen
+first. That is worth knowing before publishing, not after.
 
 | Secret                                                                      | Gives you                          |
 | --------------------------------------------------------------------------- | ---------------------------------- |
