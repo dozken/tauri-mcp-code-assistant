@@ -118,27 +118,81 @@ export const extensionOf = (fileName: string): string => {
   return (dot <= 0 ? fileName : fileName.slice(dot + 1)).toLowerCase();
 };
 
-const loadGitignore = async (root: string): Promise<Ignore | undefined> => {
+const GITIGNORE = '.gitignore';
+
+/** One `.gitignore`, with the directory its patterns are written relative to. */
+interface IgnoreLayer {
+  /** POSIX path of that directory relative to the root; `''` for the root itself. */
+  readonly base: string;
+  readonly rules: Ignore;
+}
+
+/**
+ * The layers in force inside `directory`, which is the inherited set plus this
+ * directory's own `.gitignore` if it has one.
+ *
+ * The entry list is already in hand, so a directory without one costs no syscall
+ * and no allocation — which matters when the alternative is a failed `open` per
+ * directory in a tree with tens of thousands of them.
+ */
+const withLocalRules = async (
+  directory: string,
+  relativeDirectory: string,
+  entries: readonly Dirent[],
+  inherited: readonly IgnoreLayer[],
+): Promise<readonly IgnoreLayer[]> => {
+  if (!entries.some((entry) => entry.name === GITIGNORE && entry.isFile())) return inherited;
+
   try {
-    return ignore().add(await readFile(join(root, '.gitignore'), 'utf8'));
+    const rules = ignore().add(await readFile(join(directory, GITIGNORE), 'utf8'));
+    return [...inherited, { base: relativeDirectory, rules }];
   } catch {
-    // No .gitignore, or unreadable: the built-in deny list still applies.
-    return undefined;
+    // Unreadable: the built-in deny list and the layers above still apply.
+    return inherited;
   }
+};
+
+/**
+ * Git reads `.gitignore` files from the root down, and the deepest one to express
+ * an opinion wins — which is what lets `packages/web/.gitignore` un-ignore
+ * something the repository root ignored. Asking each layer in turn, deepest
+ * first, is that rule.
+ *
+ * `test` rather than `ignores` because the three-way answer is the whole point:
+ * "not ignored" and "explicitly un-ignored" mean different things to the layer
+ * above.
+ */
+const isIgnored = (
+  layers: readonly IgnoreLayer[],
+  relativePath: string,
+  isDirectory: boolean,
+): boolean => {
+  const candidate = isDirectory ? `${relativePath}/` : relativePath;
+
+  for (let index = layers.length - 1; index >= 0; index -= 1) {
+    const layer = layers[index];
+    if (layer === undefined) continue;
+    const within = layer.base === '' ? candidate : candidate.slice(layer.base.length + 1);
+    const { ignored, unignored } = layer.rules.test(within);
+    if (ignored) return true;
+    if (unignored) return false;
+  }
+
+  return false;
 };
 
 interface Classifier {
   readonly extensions: ReadonlySet<string>;
-  readonly gitignore?: Ignore;
+  readonly layers: readonly IgnoreLayer[];
 }
 
 const shouldEnterDirectory = (
   entry: Dirent,
   relativePath: string,
-  { gitignore }: Classifier,
+  { layers }: Classifier,
 ): boolean =>
   !DEFAULT_IGNORED_DIRECTORIES.has(entry.name) &&
-  gitignore?.ignores(`${relativePath}/`) !== true &&
+  !isIgnored(layers, relativePath, true) &&
   // The per-file check would catch anything in here anyway; not descending means
   // we never even read the directory.
   !isSensitiveDirectory(relativePath);
@@ -146,9 +200,9 @@ const shouldEnterDirectory = (
 const shouldConsiderFile = (
   entry: Dirent,
   relativePath: string,
-  { extensions, gitignore }: Classifier,
+  { extensions, layers }: Classifier,
 ): boolean =>
-  gitignore?.ignores(relativePath) !== true &&
+  !isIgnored(layers, relativePath, false) &&
   extensions.has(extensionOf(entry.name)) &&
   // DEFAULT_EXTENSIONS contains `env`, so without this `prod.env` is embedded.
   !isSensitivePath(relativePath);
@@ -216,22 +270,35 @@ const classify = (
     : { action: 'skip' };
 };
 
+/** A directory still to walk, with the `.gitignore` layers it inherits. */
+interface Pending {
+  readonly absolutePath: string;
+  readonly layers: readonly IgnoreLayer[];
+}
+
 /**
- * Depth-first walk that honours the root `.gitignore`, a built-in deny list and a
- * size cap.
+ * Depth-first walk that honours every `.gitignore` in the tree, a built-in deny
+ * list and a size cap.
  */
 export async function* walkFiles(root: string, options: WalkOptions): AsyncGenerator<WalkedFile> {
-  const classifier: Classifier = {
-    extensions: options.extensions ?? DEFAULT_EXTENSIONS,
-    gitignore: await loadGitignore(root),
-  };
-  const queue: string[] = [root];
+  const extensions = options.extensions ?? DEFAULT_EXTENSIONS;
+  const queue: Pending[] = [{ absolutePath: root, layers: [] }];
 
-  for (let directory = queue.pop(); directory !== undefined; directory = queue.pop()) {
-    for (const entry of await readDirectory(directory)) {
+  for (let pending = queue.pop(); pending !== undefined; pending = queue.pop()) {
+    const directory = pending.absolutePath;
+    const entries = await readDirectory(directory);
+    const layers = await withLocalRules(
+      directory,
+      toPosix(relative(root, directory)),
+      entries,
+      pending.layers,
+    );
+    const classifier: Classifier = { extensions, layers };
+
+    for (const entry of entries) {
       const verdict = classify(root, directory, entry, classifier);
 
-      if (verdict.action === 'descend') queue.push(verdict.absolutePath);
+      if (verdict.action === 'descend') queue.push({ absolutePath: verdict.absolutePath, layers });
       if (verdict.action !== 'consider') continue;
 
       const measured = await measure(verdict.absolutePath, options.maxFileBytes);

@@ -89,6 +89,62 @@ describe('walkFiles', () => {
     expect(found).not.toContain('over.ts');
   });
 
+  it('reads a .gitignore in a nested directory, not just the one at the root', async () => {
+    // A monorepo keeps its real rules in packages/*/.gitignore. Reading only the
+    // root file meant indexing generated code the repository itself ignores.
+    await mkdir(join(root, 'packages', 'web'), { recursive: true });
+    await writeFile(join(root, 'packages', 'web', 'app.ts'), 'export const a = 1;\n');
+    await writeFile(join(root, 'packages', 'web', 'bundle.ts'), 'export const b = 2;\n');
+    await writeFile(join(root, 'packages', 'web', '.gitignore'), 'bundle.ts\n');
+
+    const found = await collect(root);
+
+    expect(found).toContain('packages/web/app.ts');
+    expect(found).not.toContain('packages/web/bundle.ts');
+  });
+
+  it('keeps a nested rule inside its own directory', async () => {
+    // Patterns are relative to the file that declares them: `bundle.ts` under
+    // packages/web says nothing about a bundle.ts elsewhere in the tree.
+    await mkdir(join(root, 'packages', 'web'), { recursive: true });
+    await mkdir(join(root, 'packages', 'api'), { recursive: true });
+    await writeFile(join(root, 'packages', 'web', 'bundle.ts'), 'export const b = 2;\n');
+    await writeFile(join(root, 'packages', 'api', 'bundle.ts'), 'export const c = 3;\n');
+    await writeFile(join(root, 'packages', 'web', '.gitignore'), 'bundle.ts\n');
+
+    const found = await collect(root);
+
+    expect(found).not.toContain('packages/web/bundle.ts');
+    expect(found).toContain('packages/api/bundle.ts');
+  });
+
+  it('lets a nested file un-ignore what the root ignored', async () => {
+    // The deepest opinion wins, which is what makes `!` in a package's own file
+    // work at all — and the reason "not ignored" and "un-ignored" cannot be the
+    // same answer.
+    await mkdir(join(root, 'packages', 'web'), { recursive: true });
+    await writeFile(join(root, 'generated.ts'), 'export const e = 5;\n');
+    await writeFile(join(root, 'packages', 'web', 'generated.ts'), 'export const f = 6;\n');
+    await writeFile(join(root, '.gitignore'), 'generated.ts\n');
+    await writeFile(join(root, 'packages', 'web', '.gitignore'), '!generated.ts\n');
+
+    const found = await collect(root);
+
+    expect(found).not.toContain('generated.ts');
+    expect(found).toContain('packages/web/generated.ts');
+  });
+
+  it('never descends into a directory the root ignored, whatever it contains', async () => {
+    // Git does not read a .gitignore inside an ignored directory, and neither
+    // should this: an ignored folder cannot un-ignore itself.
+    await mkdir(join(root, 'vendored'), { recursive: true });
+    await writeFile(join(root, 'vendored', 'lib.ts'), 'export const d = 4;\n');
+    await writeFile(join(root, 'vendored', '.gitignore'), '!lib.ts\n');
+    await writeFile(join(root, '.gitignore'), 'vendored/\n');
+
+    expect(await collect(root)).not.toContain('vendored/lib.ts');
+  });
+
   it('honours a gitignore directory rule written without a trailing slash', async () => {
     // `ignore` matches a directory rule only when asked with the trailing slash,
     // so the walker has to ask both ways or `build` never gets pruned.

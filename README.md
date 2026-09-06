@@ -438,7 +438,7 @@ The backend reads local files, so:
 - it binds to `127.0.0.1` and authenticates every request and socket (below);
 - every user-supplied path goes through `resolveWithinRoots`, which calls `realpath` **before**
   the containment check — a symlink inside an allowed folder cannot escape to `/etc/shadow`;
-- the walker skips symlinks, honours `.gitignore`, and caps file size;
+- the walker skips symlinks, honours every `.gitignore` in the tree the way git reads them, and caps file size;
 - pino redacts `authorization`, `cookie` and `apiKey` fields.
 
 #### Authenticating the local API
@@ -628,7 +628,6 @@ Three rules the runtime enforces, and one it does not:
 - The rate limit is a per-route fuse, not a per-caller quota: every request comes from the
   same machine, so there is nothing to tell two local callers apart.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
-- `.gitignore` is read from the folder root only, not from nested directories.
 - Chat history is held by the client and replayed on each turn; there is no server-side session.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.
 - Only one indexing job runs at a time (a second request gets `409`).
