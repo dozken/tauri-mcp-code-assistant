@@ -10,7 +10,14 @@ import {
 import { Reflector } from '@nestjs/core';
 import { WsException } from '@nestjs/websockets';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
-import { decideAccess, type AccessRequest } from './local-access.js';
+import { callerOf, decideAccess, type AccessRequest } from './local-access.js';
+
+/**
+ * Where the guard leaves the caller it identified, for the rate limiter to key on.
+ * A property on the request rather than a second pass over the headers: two places
+ * parsing the same headers is two places to disagree about who is calling.
+ */
+export const CALLER = Symbol('local-access:caller');
 
 const PUBLIC = 'local-access:public';
 
@@ -24,6 +31,7 @@ const credentialsOf = (headers: IncomingHttpHeaders): AccessRequest => ({
   origin: first(headers.origin),
   host: first(headers.host),
   authorization: first(headers.authorization),
+  clientId: first(headers['x-client-id']),
 });
 
 /**
@@ -64,8 +72,12 @@ export class LocalAccessGuard implements CanActivate {
       ? context.switchToWs().getClient<HeaderCarrier>()
       : context.switchToHttp().getRequest<HeaderCarrier>();
 
-    const decision = decideAccess(credentialsOf(headersOf(carrier)), this.config);
-    if (decision.allowed) return true;
+    const credentials = credentialsOf(headersOf(carrier));
+    const decision = decideAccess(credentials, this.config);
+    if (decision.allowed) {
+      (carrier as Record<symbol, unknown>)[CALLER] = callerOf(credentials, decision);
+      return true;
+    }
 
     // A WsException reaches the client as an `exception` event; an HTTP
     // exception here would be swallowed by the socket transport.

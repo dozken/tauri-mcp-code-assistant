@@ -2,6 +2,8 @@ import { Inject, Injectable, type CanActivate, type ExecutionContext } from '@ne
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { API_ROUTES } from '@ai-code-companion/contracts';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
+import { CALLER } from './local-access.guard.js';
+import { ANONYMOUS_CALLER } from './local-access.js';
 import { FixedWindowLimiter, type RateLimitPolicy } from './rate-limit.js';
 
 /**
@@ -24,7 +26,9 @@ export class RateLimitGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     if (!this.config.rateLimit.enabled || context.getType() !== 'http') return true;
 
-    const request = context.switchToHttp().getRequest<{ path?: string; method?: string }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<{ path?: string; method?: string } & Record<symbol, unknown>>();
     // Stryker disable next-line StringLiteral: Express always sets `path`; the
     // fallback exists because the type says it might not.
     const path = request.path ?? '';
@@ -32,7 +36,11 @@ export class RateLimitGuard implements CanActivate {
     // about it, and `DELETE /index` shares a path with the expensive `POST`.
     if (request.method !== 'POST' || !LIMITED.has(path)) return true;
 
-    const decision = this.limiter.consume(path, this.policyFor(path));
+    // Per caller, not one bucket for the machine: a script in a loop should blow
+    // its own fuse and leave the desktop window working. The access guard has
+    // already worked out who this is.
+    const caller = typeof request[CALLER] === 'string' ? request[CALLER] : ANONYMOUS_CALLER;
+    const decision = this.limiter.consume(`${caller}|${path}`, this.policyFor(path));
     if (decision.allowed) return true;
 
     throw new HttpException(

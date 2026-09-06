@@ -28,6 +28,8 @@ export interface AccessRequest {
   readonly origin?: string;
   readonly host?: string;
   readonly authorization?: string;
+  /** `X-Client-Id`, if the caller offered one. See {@link callerOf}. */
+  readonly clientId?: string;
 }
 
 export type AccessDecision =
@@ -63,6 +65,32 @@ const bearerOf = (authorization: string | undefined): string | undefined => {
   if (authorization === undefined) return undefined;
   const [scheme, ...rest] = authorization.split(' ');
   return scheme?.toLowerCase() === 'bearer' && rest.length > 0 ? rest.join(' ') : undefined;
+};
+
+/** A caller with no identity of its own; every such request shares one budget. */
+export const ANONYMOUS_CALLER = 'anonymous';
+
+/**
+ * Who is calling, as far as anything on loopback can tell.
+ *
+ * Not an authentication: a local process can send whatever headers it likes, and
+ * one holding the token already has everything. This exists so the rate limit can
+ * be a fuse per caller rather than one shared fuse — a script in a loop should
+ * blow its own and leave the desktop window working.
+ *
+ * A browser cannot forge `Origin`, so the app and any trusted page are separated
+ * for free. Everything else is cooperative: a caller that sends `X-Client-Id`
+ * gets its own budget, and one that does not shares the token bucket with every
+ * other anonymous script — which is exactly where a runaway one belongs.
+ */
+export const callerOf = (request: AccessRequest, decision: AccessDecision): string => {
+  if (!decision.allowed) return ANONYMOUS_CALLER;
+  if (decision.via === 'origin' && request.origin !== undefined) return `origin:${request.origin}`;
+
+  const clientId = request.clientId?.trim();
+  if (clientId !== undefined && clientId !== '') return `client:${clientId.slice(0, 64)}`;
+
+  return decision.via === 'token' ? 'token' : ANONYMOUS_CALLER;
 };
 
 export const decideAccess = (request: AccessRequest, config: AppConfig): AccessDecision => {

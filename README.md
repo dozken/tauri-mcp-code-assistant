@@ -483,6 +483,14 @@ and the bill lands on the user. Reads are never limited — the UI polls `/statu
 launcher polls `/health` — and the limiter sits _after_ the access guard, so a local process
 without the token cannot spend the budget and lock the real client out.
 
+The fuse is **per caller**, so a runaway script blows its own and the desktop window keeps
+working. A browser cannot forge `Origin`, so the app and any trusted page are separated for
+free; everything else is cooperative — send `X-Client-Id: my-tool` and get your own budget,
+send nothing and share one with every other anonymous script, which is exactly where a
+runaway one belongs. None of that is authentication, and it does not pretend to be: a local
+process holding the token can claim any identity it likes, and one that holds the token
+already has everything.
+
 #### Credentials are refused, whoever asks
 
 The allow-list answers "may this process touch that folder". It does not answer "is this file the
@@ -625,8 +633,6 @@ Three rules the runtime enforces, and one it does not:
 - The desktop bundle does not start the backend; it expects one on `127.0.0.1:3001`.
 - Watching uses `fs.watch` with `recursive: true`, which not every platform and filesystem
   supports; where it is missing the app says so and falls back to indexing on request.
-- The rate limit is a per-route fuse, not a per-caller quota: every request comes from the
-  same machine, so there is nothing to tell two local callers apart.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
 - Chat history is held by the client and replayed on each turn; there is no server-side session.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.

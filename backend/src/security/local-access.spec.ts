@@ -5,7 +5,13 @@ import { UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { WsException } from '@nestjs/websockets';
 import { loadConfig, type AppConfig } from '../config/configuration.js';
-import { decideAccess, tokenMatches, type AccessRequest } from './local-access.js';
+import {
+  ANONYMOUS_CALLER,
+  callerOf,
+  decideAccess,
+  tokenMatches,
+  type AccessRequest,
+} from './local-access.js';
 import { LocalAccessGuard } from './local-access.guard.js';
 
 const TOKEN = 'test-token-aaaaaaaaaaaaaaaaaaaaaa';
@@ -119,6 +125,51 @@ describe('decideAccess', () => {
       allowed: true,
       via: 'disabled',
     });
+  });
+});
+
+describe('callerOf', () => {
+  const host = '127.0.0.1:3001';
+  const caller = (request: AccessRequest, config = configWith()): string =>
+    callerOf(request, decideAccess(request, config));
+
+  it('separates browsers by the Origin they cannot forge', () => {
+    // The desktop window and a dev browser are different callers, for free.
+    expect(caller({ host, origin: 'tauri://localhost' })).toBe('origin:tauri://localhost');
+    expect(caller({ host, origin: 'http://localhost:1420' })).toBe('origin:http://localhost:1420');
+  });
+
+  it('takes a token caller at its word when it offers an identity', () => {
+    expect(caller({ host, authorization: `Bearer ${TOKEN}`, clientId: 'editor' })).toBe(
+      'client:editor',
+    );
+  });
+
+  it('puts every anonymous token caller in one bucket', () => {
+    // Two scripts with no identity are indistinguishable on loopback, and a fresh
+    // bucket per request would be no fuse at all.
+    expect(caller({ host, authorization: `Bearer ${TOKEN}` })).toBe('token');
+    expect(caller({ host, authorization: `Bearer ${TOKEN}`, clientId: '   ' })).toBe('token');
+  });
+
+  it('bounds a client id, because the caller chose it', () => {
+    const long = 'x'.repeat(200);
+
+    expect(caller({ host, authorization: `Bearer ${TOKEN}`, clientId: long })).toBe(
+      `client:${'x'.repeat(64)}`,
+    );
+  });
+
+  it('gives a refused request no identity to spend', () => {
+    expect(caller({ host, origin: 'https://evil.test' })).toBe(ANONYMOUS_CALLER);
+  });
+
+  it('lumps everyone together when auth is off', () => {
+    // Nothing has been proved about anyone, so nothing may be claimed.
+    const open = configWith({ enabled: false });
+
+    expect(caller({ host, origin: 'tauri://localhost' }, open)).toBe(ANONYMOUS_CALLER);
+    expect(caller({ host, clientId: 'editor' }, open)).toBe('client:editor');
   });
 });
 

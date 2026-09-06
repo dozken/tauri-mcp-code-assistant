@@ -23,8 +23,10 @@ describe('rate limiting', () => {
   let app: INestApplication;
   let root: string;
 
-  const api = (): Agent =>
-    request.agent(app.getHttpServer()).set('Authorization', `Bearer ${TOKEN}`);
+  const server = (): Parameters<typeof request.agent>[0] =>
+    app.getHttpServer() as Parameters<typeof request.agent>[0];
+
+  const api = (): Agent => request.agent(server()).set('Authorization', `Bearer ${TOKEN}`);
 
   beforeAll(async () => {
     root = await realpath(await mkdtemp(join(tmpdir(), 'companion-limit-')));
@@ -33,6 +35,7 @@ describe('rate limiting', () => {
       .overrideProvider(APP_CONFIG)
       .useValue({
         ...loadConfig({ CHROMA_ENABLED: 'false', LLM_PROVIDER: 'stub', LOG_LEVEL: 'silent' }),
+        corsOrigins: ['tauri://localhost'],
         auth: { enabled: true, token: TOKEN, tokenFile: join(root, 'token') },
         indexing: {
           chunkSize: 400,
@@ -94,6 +97,25 @@ describe('rate limiting', () => {
 
     expect(response.status).not.toBe(429);
     await settle();
+  });
+
+  it('does not let one caller spend another caller’s budget', async () => {
+    // The whole point of keying per caller: a script in a loop blows its own fuse
+    // and the desktop window, which arrives with an Origin it cannot forge, keeps
+    // working.
+    const script = (): Agent => api().set('X-Client-Id', 'runaway-script');
+    for (let attempt = 0; attempt < LIMIT + 2; attempt += 1) {
+      await script().post('/chat').send({ message: 'hello' });
+    }
+    expect((await script().post('/chat').send({ message: 'hello' })).status).toBe(429);
+
+    const app = request
+      .agent(server())
+      .set('Origin', 'tauri://localhost')
+      .post('/chat')
+      .send({ message: 'hello' });
+
+    expect((await app).status).not.toBe(429);
   });
 
   it('leaves the routes a client polls alone', async () => {

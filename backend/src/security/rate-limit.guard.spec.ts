@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ExecutionContext } from '@nestjs/common';
 import type { AppConfig } from '../config/configuration.js';
 import { testConfig } from '../../test/helpers.js';
+import { CALLER } from './local-access.guard.js';
 import { RateLimitGuard } from './rate-limit.guard.js';
 
 const configWith = (overrides: Partial<AppConfig['rateLimit']> = {}): AppConfig => {
@@ -20,11 +21,11 @@ const configWith = (overrides: Partial<AppConfig['rateLimit']> = {}): AppConfig 
   };
 };
 
-/** Only the two things the guard reads off a request. */
-const httpContext = (method: string, path: string): ExecutionContext =>
+/** What the guard reads off a request: the route, and who the access guard said is calling. */
+const httpContext = (method: string, path: string, caller?: string): ExecutionContext =>
   ({
     getType: () => 'http',
-    switchToHttp: () => ({ getRequest: () => ({ method, path }) }),
+    switchToHttp: () => ({ getRequest: () => ({ method, path, [CALLER]: caller }) }),
   }) as unknown as ExecutionContext;
 
 const wsContext = (): ExecutionContext => ({ getType: () => 'ws' }) as unknown as ExecutionContext;
@@ -74,6 +75,37 @@ describe('RateLimitGuard', () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       expect(guard.canActivate(httpContext('DELETE', '/index'))).toBe(true);
     }
+  });
+
+  it('gives each caller its own fuse', () => {
+    // The point of the whole thing: a script in a loop blows its own budget and
+    // the desktop window keeps working.
+    const guard = new RateLimitGuard(configWith());
+    const script = 'client:some-script';
+    const app = 'origin:tauri://localhost';
+
+    expect(guard.canActivate(httpContext('POST', '/chat', script))).toBe(true);
+    expect(() => guard.canActivate(httpContext('POST', '/chat', script))).toThrow(/Too many/);
+
+    expect(guard.canActivate(httpContext('POST', '/chat', app))).toBe(true);
+  });
+
+  it('shares one fuse among callers that gave no identity', () => {
+    // Two anonymous scripts are indistinguishable on loopback, and pretending
+    // otherwise would hand a runaway one a fresh budget per request.
+    const guard = new RateLimitGuard(configWith());
+
+    expect(guard.canActivate(httpContext('POST', '/chat'))).toBe(true);
+    expect(() => guard.canActivate(httpContext('POST', '/chat'))).toThrow(/Too many/);
+  });
+
+  it('still counts each route separately within one caller', () => {
+    const guard = new RateLimitGuard(configWith());
+    const app = 'origin:tauri://localhost';
+
+    expect(guard.canActivate(httpContext('POST', '/chat', app))).toBe(true);
+    expect(() => guard.canActivate(httpContext('POST', '/chat', app))).toThrow(/RATE_LIMIT_CHAT/);
+    expect(guard.canActivate(httpContext('POST', '/index', app))).toBe(true);
   });
 
   it('leaves the socket transport to the gateway', () => {
