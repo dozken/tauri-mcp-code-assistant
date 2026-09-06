@@ -48,6 +48,8 @@ export interface AppConfig {
      * otherwise holds the connection — and a gateway slot — open forever.
      */
     readonly timeoutMs: number;
+    /** How many conversations the server remembers before evicting the oldest. */
+    readonly maxConversations: number;
     /** Per-token delay for the stub model. Only meaningful when provider is `stub`. */
     readonly stubTokenDelayMs: number;
   };
@@ -176,6 +178,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       baseUrl: text(env.OPENAI_BASE_URL),
       temperature: Number(env.LLM_TEMPERATURE ?? 0),
       timeoutMs: num(env.LLM_TIMEOUT_MS, 120_000),
+      maxConversations: num(env.MAX_CONVERSATIONS, 200),
       stubTokenDelayMs: num(env.STUB_TOKEN_DELAY_MS, 8),
     },
     auth: {

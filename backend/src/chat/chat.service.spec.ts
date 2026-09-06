@@ -8,6 +8,7 @@ import { StubChatModel } from '../llm/stub-chat-model.js';
 import { recordingLogger, silentLogger, testConfig } from '../../test/helpers.js';
 import type { PinoLogger } from 'nestjs-pino';
 import { ChatService, ChatTimeoutError } from './chat.service.js';
+import { ConversationStore } from './conversation.store.js';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { AIMessage, AIMessageChunk } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -44,7 +45,13 @@ const buildChatService = async (
   const model = new StubChatModel({ tokenDelayMs: overrides.tokenDelayMs ?? 0 });
 
   return {
-    chat: new ChatService(model, mcpTools, config, overrides.logger ?? silentLogger()),
+    chat: new ChatService(
+      model,
+      mcpTools,
+      new ConversationStore(config),
+      config,
+      overrides.logger ?? silentLogger(),
+    ),
     store,
   };
 };
@@ -107,6 +114,7 @@ describe('ChatService', () => {
     const chat = new ChatService(
       new StubChatModel({ tokenDelayMs: 0 }),
       new McpToolsService(config, codeTools, silentLogger()),
+      new ConversationStore(config),
       config,
       silentLogger(),
     );
@@ -145,6 +153,7 @@ describe('ChatService', () => {
     const chat = new ChatService(
       model,
       new McpToolsService(config, codeTools, silentLogger()),
+      new ConversationStore(config),
       config,
       silentLogger(),
     );
@@ -173,7 +182,13 @@ const chatServiceWithWedgedTool = (timeoutMs: number): ChatService => {
   const config = { ...base, llm: { ...base.llm, timeoutMs } };
   const mcpTools = { getTools: async () => [wedgedTool()] } as unknown as McpToolsService;
 
-  return new ChatService(new StubChatModel({ tokenDelayMs: 0 }), mcpTools, config, silentLogger());
+  return new ChatService(
+    new StubChatModel({ tokenDelayMs: 0 }),
+    mcpTools,
+    new ConversationStore(config),
+    config,
+    silentLogger(),
+  );
 };
 
 /** A tool the service can call, standing in for whatever the MCP server exposes. */
@@ -208,7 +223,7 @@ const serviceWith = (model: BaseChatModel, tools: StructuredToolInterface[]): Ch
   const config = testConfig();
   const mcpTools = { getTools: async () => tools } as unknown as McpToolsService;
 
-  return new ChatService(model, mcpTools, config, silentLogger());
+  return new ChatService(model, mcpTools, new ConversationStore(config), config, silentLogger());
 };
 
 describe('ChatService tool loop', () => {
@@ -325,44 +340,82 @@ describe('ChatService tool loop, edge cases', () => {
 });
 
 describe('ChatService prompt assembly', () => {
-  /** Captures the messages the model was handed on the first turn. */
-  const seenByModel = async (request: Parameters<ChatService['stream']>[0]): Promise<string[]> => {
-    const messages: string[] = [];
+  const ANSWER = 'In src/auth.ts.';
+
+  /** A service whose model records what it was handed, one array per turn. */
+  const recordingService = (): { chat: ChatService; turns: string[][] } => {
+    const turns: string[][] = [];
     const recorder = {
       _llmType: () => 'recorder',
       bindTools: () => recorder,
       stream: async (given: { content: unknown }[]) => {
-        messages.push(...given.map((message) => String(message.content)));
+        turns.push(given.map((message) => String(message.content)));
 
-        return (async function* (): AsyncGenerator<AIMessageChunk> {})();
+        return (async function* (): AsyncGenerator<AIMessageChunk> {
+          yield new AIMessageChunk({ content: ANSWER });
+        })();
       },
     } as unknown as BaseChatModel;
 
-    await collect(
-      new ChatService(
+    const config = testConfig();
+    return {
+      chat: new ChatService(
         recorder,
         { getTools: async () => [] } as unknown as McpToolsService,
-        testConfig(),
+        new ConversationStore(config),
+        config,
         silentLogger(),
-      ).stream(request),
-    );
-
-    return messages;
+      ),
+      turns,
+    };
   };
 
-  it('replays the history it is given as alternating turns', async () => {
-    const messages = await seenByModel({
-      message: 'and where is it called from?',
-      history: [
-        { role: 'user', content: 'where do we authenticate?' },
-        { role: 'assistant', content: 'In src/auth.ts.' },
-      ],
-    });
+  /** The messages the model was handed on the first turn. */
+  const seenByModel = async (request: Parameters<ChatService['stream']>[0]): Promise<string[]> => {
+    const { chat, turns } = recordingService();
+    await collect(chat.stream(request));
 
-    // Dropping the history is invisible in the reply and ruins every follow-up.
-    expect(messages).toContain('where do we authenticate?');
-    expect(messages).toContain('In src/auth.ts.');
-    expect(messages.at(-1)).toBe('and where is it called from?');
+    return turns[0] ?? [];
+  };
+
+  it('replays what it actually said on the next turn of the same conversation', async () => {
+    // The history is the server's own record now. Losing it is invisible in the
+    // reply and ruins every follow-up.
+    const { chat, turns } = recordingService();
+    await collect(chat.stream({ message: 'where do we authenticate?', conversationId: 'c1' }));
+    await collect(chat.stream({ message: 'and where is it called from?', conversationId: 'c1' }));
+
+    const second = turns[1] ?? [];
+    expect(second).toContain('where do we authenticate?');
+    expect(second).toContain(ANSWER);
+    expect(second.at(-1)).toBe('and where is it called from?');
+  });
+
+  it('keeps conversations apart', async () => {
+    const { chat, turns } = recordingService();
+    await collect(chat.stream({ message: 'where do we authenticate?', conversationId: 'c1' }));
+    await collect(chat.stream({ message: 'unrelated question', conversationId: 'c2' }));
+
+    expect(turns[1] ?? []).not.toContain('where do we authenticate?');
+  });
+
+  it('treats a request with no conversation id as a one-shot', async () => {
+    // Two anonymous questions must not become one conversation by accident.
+    const { chat, turns } = recordingService();
+    await collect(chat.stream({ message: 'where do we authenticate?' }));
+    await collect(chat.stream({ message: 'and where is it called from?' }));
+
+    expect(turns[1] ?? []).not.toContain('where do we authenticate?');
+  });
+
+  it('forgets a conversation when asked', async () => {
+    const { chat, turns } = recordingService();
+    await collect(chat.stream({ message: 'where do we authenticate?', conversationId: 'c1' }));
+
+    chat.forget('c1');
+    await collect(chat.stream({ message: 'and where is it called from?', conversationId: 'c1' }));
+
+    expect(turns[1] ?? []).not.toContain('where do we authenticate?');
   });
 
   it('pins the search to one root when the request names one', async () => {
@@ -428,6 +481,7 @@ describe('ChatService deadline', () => {
     const chat = new ChatService(
       broken,
       { getTools: async () => [] } as unknown as McpToolsService,
+      new ConversationStore(base),
       base,
       silentLogger(),
     );
@@ -456,6 +510,7 @@ describe('ChatService deadline', () => {
     const chat = new ChatService(
       buriesTheAbort,
       { getTools: async () => [] } as unknown as McpToolsService,
+      new ConversationStore(base),
       { ...base, llm: { ...base.llm, timeoutMs: 20 } },
       silentLogger(),
     );

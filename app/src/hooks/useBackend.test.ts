@@ -228,7 +228,10 @@ describe('useBackend', () => {
     expect(useAppStore.getState()).toMatchObject({ isStreaming: false, error: 'model exploded' });
   });
 
-  it('sends the message with the recent history and the selected root', () => {
+  it('sends the message and the selected root, and no transcript', () => {
+    // The backend keeps the conversation and looks it up by id. Sending our own
+    // let a client put words in the assistant's mouth, and made every message
+    // carry the whole conversation with it.
     const { result } = renderHook(() => useBackend());
     act(() => {
       const store = useAppStore.getState();
@@ -246,10 +249,6 @@ describe('useBackend', () => {
       event: SOCKET_EVENTS.chatSend,
       payload: {
         message: 'second',
-        history: [
-          { role: 'user', content: 'first' },
-          { role: 'assistant', content: 'answer' },
-        ],
         conversationId: undefined,
         root: '/repo',
       },
@@ -312,31 +311,6 @@ describe('useBackend', () => {
       expect(useAppStore.getState().connected).toBe(true);
     });
     expect(fetchStatus).toHaveBeenCalled();
-  });
-
-  it('keeps an unfinished or failed turn out of the replayed history', () => {
-    const { result } = renderHook(() => useBackend());
-    act(() => {
-      const store = useAppStore.getState();
-      store.addUserMessage('answered');
-      store.beginAssistantMessage();
-      store.completeAssistantMessage('an answer');
-      store.addUserMessage('failed');
-      store.beginAssistantMessage();
-      store.failAssistantMessage('boom');
-    });
-
-    act(() => {
-      result.current.sendMessage('next');
-    });
-
-    const { payload } = socket.emitted.at(-1) as { payload: { history: unknown[] } };
-    // The errored assistant turn would poison the next prompt with a non-answer.
-    expect(payload.history).toEqual([
-      { role: 'user', content: 'answered' },
-      { role: 'assistant', content: 'an answer' },
-      { role: 'user', content: 'failed' },
-    ]);
   });
 
   it('carries the conversation id once the backend has assigned one', () => {

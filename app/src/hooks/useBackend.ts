@@ -146,18 +146,14 @@ export const useBackend = () => {
     const store = useAppStore.getState();
     if (store.isStreaming) return;
 
-    // The client owns the transcript, so the backend stays stateless.
-    const history = store.messages
-      .filter((entry) => !entry.streaming && !entry.error)
-      .slice(-20)
-      .map((entry) => ({ role: entry.role, content: entry.content }));
-
     store.addUserMessage(content);
     store.beginAssistantMessage();
 
+    // No transcript: the backend keeps the conversation and looks it up by id.
+    // Sending our own let a client put words in the assistant's mouth, and made
+    // every message carry the whole conversation with it.
     getSocket().emit(SOCKET_EVENTS.chatSend, {
       message: content,
-      history,
       conversationId: store.conversationId,
       root: store.selectedRoot,
     });

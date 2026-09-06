@@ -18,6 +18,7 @@ import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { CHAT_MODEL } from '../llm/llm.module.js';
 import { messageText } from '../llm/stub-chat-model.js';
 import { McpToolsService } from '../mcp/mcp-tools.service.js';
+import { ConversationStore } from './conversation.store.js';
 import type {
   ChatRequest,
   ChatResponse,
@@ -113,6 +114,7 @@ export class ChatService {
   constructor(
     @Inject(CHAT_MODEL) private readonly model: BaseChatModel,
     private readonly mcpTools: McpToolsService,
+    private readonly conversations: ConversationStore,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @InjectPinoLogger(ChatService.name) private readonly logger: PinoLogger,
   ) {}
@@ -199,6 +201,11 @@ export class ChatService {
         }
       }
 
+      this.conversations.append(
+        conversationId,
+        { role: 'user', content: request.message },
+        { role: 'assistant', content: answer },
+      );
       yield { type: 'done', conversationId, message: answer, toolCalls };
     } catch (error) {
       // A turn the caller ended — Stop, or the window closing — is not a failure.
@@ -291,6 +298,11 @@ export class ChatService {
     return this.model._llmType();
   }
 
+  /** Drops a conversation the client has finished with. */
+  forget(conversationId: string): void {
+    this.conversations.forget(conversationId);
+  }
+
   private buildMessages(request: ChatRequest): BaseMessage[] {
     const messages: BaseMessage[] = [new SystemMessage(SYSTEM_PROMPT)];
 
@@ -300,7 +312,10 @@ export class ChatService {
       );
     }
 
-    for (const entry of request.history ?? []) {
+    // The server's own record, not the client's. A caller that supplied its own
+    // transcript could put words in the assistant's mouth and steer the answer
+    // with them; this is what it actually said.
+    for (const entry of this.conversations.history(request.conversationId ?? '')) {
       messages.push(
         entry.role === 'user' ? new HumanMessage(entry.content) : new AIMessage(entry.content),
       );

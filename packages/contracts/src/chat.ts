@@ -10,10 +10,20 @@ export const chatHistoryMessageSchema = z.object({
   content: z.string().max(MAX_MESSAGE_LENGTH),
 });
 
-/** `POST /chat` body, and the payload of the `chat:send` socket event. */
-export const chatRequestSchema = z.object({
+/**
+ * `POST /chat` body, and the payload of the `chat:send` socket event.
+ *
+ * No history: the server keeps the conversation and looks it up by
+ * `conversationId`. A client that sent its own transcript could put words in the
+ * assistant's mouth, and the payload grew with every turn.
+ *
+ * Strict, so a client still sending one is told rather than having it silently
+ * dropped — the failure that leaves someone debugging why follow-ups lost their
+ * context.
+ */
+export const chatRequestSchema = z.strictObject({
   message: z.string().trim().min(1, 'message is required').max(MAX_MESSAGE_LENGTH),
-  history: z.array(chatHistoryMessageSchema).max(MAX_HISTORY_MESSAGES).optional(),
+  /** Omit for a one-shot question that starts and ends with this message. */
   conversationId: z.string().optional(),
   /** Restrict retrieval to one indexed folder. */
   root: z.string().optional(),

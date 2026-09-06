@@ -201,7 +201,10 @@ describe('HTTP API', () => {
 
   it.each([
     ['an empty message', { message: '   ' }],
-    ['an unknown history role', { message: 'hi', history: [{ role: 'system', content: 'x' }] }],
+    // The server owns the conversation, so a client's own transcript is refused
+    // rather than dropped — a caller must not be able to put words in the
+    // assistant's mouth, nor be left wondering where its context went.
+    ['a client-supplied transcript', { message: 'hi', history: [{ role: 'user', content: 'x' }] }],
   ])('rejects %s on /chat', async (_label, payload) => {
     const response = await api().post('/chat').send(payload);
 

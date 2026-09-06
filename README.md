@@ -179,6 +179,12 @@ while the frontend declared `IndexProgressEvent`, so `activeJob.percent` was alw
 | `GET`    | `/health`       | –                   | Liveness                                      |
 | `POST`   | `/chat`         | `chatRequestSchema` | Blocking; the UI streams over Socket.IO       |
 
+A chat request carries a message and, to continue a conversation, its id — never a
+transcript. The backend keeps the turns, so the payload does not grow with the
+conversation and a caller cannot put words in the assistant's mouth to steer the next
+answer. Omit the id for a one-shot question; send an unexpected field and the request is
+refused rather than quietly stripped.
+
 Socket.IO events — client→server: `chat:send`, `chat:cancel`; server→client:
 `index:progress`, `chat:token`, `chat:tool`, `chat:done`, `chat:error`.
 
@@ -634,7 +640,8 @@ Three rules the runtime enforces, and one it does not:
 - Watching uses `fs.watch` with `recursive: true`, which not every platform and filesystem
   supports; where it is missing the app says so and falls back to indexing on request.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
-- Chat history is held by the client and replayed on each turn; there is no server-side session.
+- Conversations live in the backend's memory: they survive a page reload but not a restart, and
+  the oldest is evicted past `MAX_CONVERSATIONS`.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.
 - Only one indexing job runs at a time (a second request gets `409`).
 - The desktop window's CSP lives in `tauri.conf.json`, which is static JSON with nowhere to
