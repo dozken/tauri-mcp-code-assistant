@@ -44,20 +44,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Apple silicon and Intel from one job; the two are separate binaries
-          # and shipping only the host's would leave half the users out.
+          # One job per macOS architecture rather than a universal bundle. The
+          # sidecar is a copy of the build machine's own `node` with a blob
+          # injected into it, so it can only ever be the architecture it was built
+          # on — a universal bundle would need an x86_64 Node produced on an arm64
+          # runner, which is a cross-build nobody here can test. Two native
+          # bundles, each carrying a runtime that actually runs.
           - os: macos-latest
-            label: macOS (universal)
-            args: '--target universal-apple-darwin'
-            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            label: macOS (Apple silicon)
+          - os: macos-15-intel
+            label: macOS (Intel)
           - os: ubuntu-22.04
             label: Linux (deb, rpm, AppImage)
-            args: ''
-            rust-targets: ''
           - os: windows-latest
             label: Windows (msi, nsis)
-            args: ''
-            rust-targets: ''
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -65,8 +65,6 @@ jobs:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
@@ -78,20 +76,18 @@ jobs:
             libayatana-appindicator3-dev libsoup-3.0-dev
       - run: npm ci
 
-      # The sidecar embeds the Node runtime of the machine that builds it, so it
-      # is built on each runner rather than once and copied.
+      # Built on each runner rather than once and copied: the sidecar embeds that
+      # machine's Node, and Tauri looks it up by the host target triple.
       - name: Package the backend as a sidecar
         run: npm run package --workspace @ai-code-companion/backend
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Absent on a fork or a first release: the bundles still build, they
-          # just carry no update signature. A missing secret must not be the
-          # reason a release fails at the last step.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS notarisation and Windows Authenticode, when the certificates exist.
+          # No `TAURI_SIGNING_PRIVATE_KEY`: nothing here produces updater artefacts
+          # to sign. Passing a key that signs nothing reads like the updater works.
+          # macOS notarisation, when the certificates exist. Every one is optional —
+          # a missing secret produces an unsigned bundle, not a failed release.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -100,7 +96,6 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: app
-          args: ${{ matrix.args }}
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: AI Code Companion ${{ inputs.tag || github.ref_name }}
           # Draft, so a human reads the notes and checks the artefacts before

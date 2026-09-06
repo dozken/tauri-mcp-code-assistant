@@ -26,6 +26,7 @@
     "dev:tauri": "npm run build --workspace @ai-code-companion/contracts && npm run package:if-missing --workspace @ai-code-companion/backend && npm run tauri:dev --workspace app",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "icons": "npm run tauri -w app -- icon app/src-tauri/icon.svg",
     "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

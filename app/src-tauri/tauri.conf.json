@@ -31,7 +31,14 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Chat with your codebase",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "externalBin": ["../../backend/dist-bin/companion-backend"]
   }
 }

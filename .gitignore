@@ -27,3 +27,9 @@ blob-report/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# `tauri icon` writes a mobile asset set alongside the desktop one. This app has
+# no mobile target, so committing thirty-odd files nothing builds would only make
+# regenerating the icons look like a change.
+app/src-tauri/icons/android/
+app/src-tauri/icons/ios/

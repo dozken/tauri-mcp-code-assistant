@@ -573,31 +573,47 @@ Stop button open indefinitely.
 
 What it does **not** do yet, and would need before shipping:
 
-- **No rate limiting.** An authenticated caller can start `POST /index` in a loop. The one-job-at-a-
-  time rule bounds the damage, but nothing bounds the request rate.
+- **A caller's identity is cooperative.** The rate limit is a fuse per caller, and `Origin` is the
+  only part of that a client cannot forge. Anything else can claim any `X-Client-Id` it likes — a
+  local process holding the token already has everything, so this separates well-behaved clients
+  from a runaway one rather than deciding who may call.
 - **The deny-list is name-based.** It knows `.env` is a secret; it cannot tell that someone pasted a
   live token into `notes.md`. Entropy scanning is the next step, and gitleaks already covers the
   committed history.
-- **Nothing is signed.** There is no release workflow producing notarised installers, so there is no
-  supply chain from this repo to a user's machine yet.
+- **Nothing is signed by default.** The release workflow builds installers, but code signing and
+  notarisation only happen where the certificates are configured — so out of the box there is no
+  supply chain from this repo to a user's machine.
 
 ## Releasing
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: the full gate first — a tag can
 be pushed at any commit, including one CI never saw — then desktop bundles on all three
 platforms, attached to a **draft** release for a human to look over before anyone
-downloads them. macOS builds universal, so Apple silicon and Intel both get a binary.
+downloads them. macOS builds twice, once per architecture: the sidecar is a copy of the
+build machine's own `node`, so a bundle can only be the architecture it was built on, and
+a universal one would need an x86_64 runtime produced on an arm64 runner.
 
 Signing is by secret, and every one of them is optional: a missing secret produces an
 unsigned bundle rather than a failed release.
 
 | Secret                                                                      | Gives you                          |
 | --------------------------------------------------------------------------- | ---------------------------------- |
-| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`           | Signed update artefacts            |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | A macOS build Gatekeeper will open |
 | `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`                               | Notarisation on top of that        |
 
-Generate the updater key with `npm run tauri -w app -- signer generate -w ~/.tauri/companion.key`.
+There is **no auto-update**: a new version is a new download. Turning it on is not a
+config flag — `bundle.createUpdaterArtifacts` refuses to build without a public key, so it
+needs a keypair generated with `npm run tauri -w app -- signer generate`, the private half
+held as a repository secret, the public half committed, `tauri-plugin-updater` registered,
+and a published (not draft) release for the app to read a manifest from. Until all of that
+exists, passing signing secrets would sign nothing, so the workflow does not ask for them.
+
+### Icons
+
+`app/src-tauri/icon.svg` is the source, and `npm run icons` regenerates the platform set
+from it — including the `.icns` and `.ico` that the macOS and Windows bundlers require and
+that a PNG-only icon directory silently lacks. The mobile assets it also writes are
+git-ignored; this app has no mobile target.
 
 ### The bundle carries its own backend
 
@@ -669,7 +685,7 @@ Three rules the runtime enforces, and one it does not:
 
 ### Known limitations
 
-- The desktop bundle does not start the backend; it expects one on `127.0.0.1:3001`.
+- There is no auto-update; a new version is a new download. See [Releasing](#releasing).
 - Watching uses `fs.watch` with `recursive: true`, which not every platform and filesystem
   supports; where it is missing the app says so and falls back to indexing on request.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.
@@ -677,6 +693,7 @@ Three rules the runtime enforces, and one it does not:
   the oldest is evicted past `MAX_CONVERSATIONS`.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.
 - Only one indexing job runs at a time (a second request gets `409`).
-- The desktop window's CSP lives in `tauri.conf.json`, which is static JSON with nowhere to
-  read an environment variable. Changing `VITE_BACKEND_URL` fails the build with the exact
-  string to paste there, rather than shipping a window that blocks every request.
+- The desktop window's CSP is written twice — into `index.html` by the build and into
+  `tauri.conf.json` by hand — because both are enforced and static JSON has nowhere to read
+  a value from. The build refuses to proceed when the two differ, and prints the string to
+  paste, rather than shipping a window that blocks every request.

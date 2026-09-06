@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Source of truth for every platform icon. `npm run icons` regenerates
+    src-tauri/icons/ from this file, including the .icns and .ico the macOS and
+    Windows bundlers require and a 512@2x slice that a Retina Mac renders sharp.
+
+    Traced from the 512px PNG this replaces: the gradient endpoints, the corner
+    radius, the 31px stroke and the three skeletons were measured off it, so the
+    mark is the same one, drawn at any size instead of one.
+  -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F6AFE" />
+      <stop offset="1" stop-color="#7BD8A3" />
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="205" fill="url(#ground)" />
+  <g
+    fill="none"
+    stroke="#F5F8FF"
+    stroke-width="62"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M442 306 L287 510 L442 714" />
+    <path d="M580 306 L735 510 L580 714" />
+    <path d="M557 266 L464 756" />
+  </g>
+</svg>
