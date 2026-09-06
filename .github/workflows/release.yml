@@ -81,19 +81,37 @@ jobs:
       - name: Package the backend as a sidecar
         run: npm run package --workspace @ai-code-companion/backend
 
-      - uses: tauri-apps/tauri-action@v0
+      # An absent secret is an empty string, not an absent variable, and Tauri reads
+      # a defined `APPLE_CERTIFICATE` as "sign with this" — so handing the group to
+      # the bundler unconditionally turns *no* certificate into `security import:
+      # failed to import keychain certificate` and a failed release. The first run
+      # of this workflow died exactly there. Exporting the group only when there is
+      # a certificate is what makes "every signing secret is optional" true.
+      - name: Enable Apple signing, when the certificates are configured
+        if: startsWith(matrix.os, 'macos')
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No `TAURI_SIGNING_PRIVATE_KEY`: nothing here produces updater artefacts
-          # to sign. Passing a key that signs nothing reads like the updater works.
-          # macOS notarisation, when the certificates exist. Every one is optional —
-          # a missing secret produces an unsigned bundle, not a failed release.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No Apple certificate configured; this bundle will be unsigned."
+            exit 0
+          fi
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                      APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            printf '%s<<COMPANION_SECRET_EOF\n%s\nCOMPANION_SECRET_EOF\n' "$name" "${!name}"
+          done >> "$GITHUB_ENV"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No `TAURI_SIGNING_PRIVATE_KEY`: nothing here produces updater artefacts
+          # to sign. Passing a key that signs nothing reads like the updater works.
+          # The Apple variables arrive from the step above, or not at all.
         with:
           projectPath: app
           tagName: ${{ inputs.tag || github.ref_name }}

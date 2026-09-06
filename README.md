@@ -594,7 +594,10 @@ build machine's own `node`, so a bundle can only be the architecture it was buil
 a universal one would need an x86_64 runtime produced on an arm64 runner.
 
 Signing is by secret, and every one of them is optional: a missing secret produces an
-unsigned bundle rather than a failed release.
+unsigned bundle rather than a failed release. That takes a step to arrange rather than
+being free — an absent secret reaches the runner as an empty string, not as an absent
+variable, and Tauri reads a defined `APPLE_CERTIFICATE` as "sign with this", so the
+workflow exports the Apple group only when there is a certificate in it.
 
 | Secret                                                                      | Gives you                          |
 | --------------------------------------------------------------------------- | ---------------------------------- |
