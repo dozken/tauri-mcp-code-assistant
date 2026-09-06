@@ -23,6 +23,7 @@ import { PLUGIN_CONTEXT } from '../extensions/extensions.module.js';
 import type { Context } from '../plugins/context.js';
 import type { CodeChunk } from '../vector/vector-store.types.js';
 import { chunkText, detectLanguage } from './chunker.js';
+import { redactSecrets } from '../security/secret-values.js';
 import { walkFiles, type WalkedFile } from './file-walker.js';
 import { toProgressEvent } from './progress.js';
 import type {
@@ -384,10 +385,25 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
     // extension filter; embedding it would only add noise.
     if (content.includes(NUL_BYTE)) return [];
 
+    // Here rather than at the read above, so `contentHash` stays an address for
+    // the file's actual bytes. What must never hold a credential is the index:
+    // the store outlives the file, is copied around, and is what the agent quotes.
+    const redaction = redactSecrets(content);
+    if (redaction.count > 0) {
+      // Loud, and once per file that has any. A repository with credentials in it
+      // is something the person running this wants to hear about — and the count
+      // says how many without the log becoming the leak.
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
+      this.logger.warn(
+        { file: file.relativePath, redacted: redaction.count },
+        'Redacted values that look like credentials before indexing',
+      );
+    }
+
     const language = detectLanguage(file.relativePath);
     const indexedAt = new Date().toISOString();
 
-    return chunkText(content, {
+    return chunkText(redaction.text, {
       chunkSize: this.config.indexing.chunkSize,
       chunkOverlap: this.config.indexing.chunkOverlap,
     }).map((chunk) => ({

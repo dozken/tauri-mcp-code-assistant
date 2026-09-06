@@ -587,6 +587,28 @@ to the in-memory store and the process has restarted — so that case re-indexes
 scratch. Without it a restart produced a folder reporting 298 indexed files and
 zero searchable chunks, which is exactly what the live check caught.
 
+#### Credentials inside ordinary files are redacted
+
+The deny-list refuses files that _are_ credentials. This is the other half: a live token pasted
+into `notes.md`, in a file the indexer is right to read.
+
+Two narrow rules, because the obvious one does not work. **Shapes** — `AKIA…`, `ghp_…`, `sk-…`, a
+PEM block, a JWT, credentials in a URL — are caught anywhere, including pasted bare into prose,
+which is how they usually arrive. **Context** catches a long value assigned to something named
+`password`, `token`, `client_secret` and so on. Entropy appears only as a floor to throw out
+`changeme`, never as the test: see [Known limitations](#known-limitations) for the measurements
+that rule it out.
+
+Redaction replaces the value with `[redacted: possible secret]` and leaves the code around it, so
+the assistant can still answer about the file. It happens where text enters the index — the store
+outlives the file and is what gets quoted — and again on the way out of `search_code`, because an
+index built before this existed still holds whatever it held. A file with any is logged with a
+count, and never with the value.
+
+Over-redacting has a real cost: the assistant then answers about code it cannot see. So the rules
+are narrow enough to name, and the test suite spends as much effort on `authUrl`, `Content-Type`
+and subresource hashes staying intact as on the credentials being caught.
+
 #### Chat turns have a deadline
 
 `LLM_TIMEOUT_MS` (default 120s) caps a whole turn, tool calls included. Past it the turn is
@@ -606,9 +628,12 @@ What it does **not** do yet, and would need before shipping:
   only part of that a client cannot forge. Anything else can claim any `X-Client-Id` it likes — a
   local process holding the token already has everything, so this separates well-behaved clients
   from a runaway one rather than deciding who may call.
-- **The deny-list is name-based.** It knows `.env` is a secret; it cannot tell that someone pasted a
-  live token into `notes.md`. Entropy scanning is the next step, and gitleaks already covers the
-  committed history.
+- **Secret detection inside files is shapes and context, not entropy.** A credential with a
+  recognisable format is caught anywhere; one assigned to a credential-shaped name is caught if it
+  is long enough. A high-entropy string that is neither — a bare base64 blob in a comment — is not.
+  That limit is deliberate: measured against real values, a 40-character hex API key scores 3.96
+  bits per character and `application/json; charset=utf-8` scores 4.26, so a threshold that catches
+  the key redacts the header. gitleaks covers the committed history separately.
 - **Nothing is signed by default.** The release workflow builds installers, but code signing and
   notarisation only happen where the certificates are configured — so out of the box there is no
   supply chain from this repo to a user's machine.

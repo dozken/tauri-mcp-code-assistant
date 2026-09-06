@@ -83,6 +83,13 @@ The region form (`// Stryker disable X` … `// Stryker restore X`) around the w
 statement works. Also: with a wrapped comment, put the directive on its **last** line,
 because each `//` line is its own comment node.
 
+The same trap has a second, quieter form, and it has now been walked into twice by the
+person writing this paragraph: **a declaration that Prettier wraps puts the mutants on the
+second line.** `const PLACEHOLDER =` on one line and the regex on the next means
+`next-line` reaches the `const` and nothing else. Nothing warns; the directive is accepted
+and the mutant is still reported. If a declaration spans more than one line, reach for the
+region form without thinking about it.
+
 One trap that is not Stryker's fault at all: **the test runner's module interop is not
 Node's.** `await import('sqlite3')` hands Node `{ default }` and nothing else, while
 vite-node helpfully adds the named exports on top of it. So `imported.default?.Database ??

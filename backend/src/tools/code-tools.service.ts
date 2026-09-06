@@ -4,6 +4,7 @@ import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { resolveWithinRoots } from '../security/path-guard.js';
 import { isSensitivePath, sensitivePathReason } from '../security/secret-files.js';
+import { redactSecrets } from '../security/secret-values.js';
 import { detectLanguage } from '../indexing/chunker.js';
 import { extractImport, extractSymbol } from './outline.js';
 import { VectorStoreService } from '../vector/vector-store.service.js';
@@ -94,7 +95,10 @@ export class CodeToolsService {
           startLine: match.metadata.startLine,
           endLine: match.metadata.endLine,
           score: Number(match.score.toFixed(4)),
-          text: match.text,
+          // Again on the way out, for the same reason the path filter is: an index
+          // built before this existed still holds whatever it held, and re-indexing
+          // is the user's choice rather than ours.
+          text: redactSecrets(match.text).text,
         })),
     };
   }

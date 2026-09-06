@@ -16,7 +16,13 @@ import { MemoryMetadataStore } from '../common/metadata-store.js';
 import { HashingEmbeddings } from '../vector/embeddings.js';
 import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
-import { recordingLogger, silentLogger, testConfig, testPlugins } from '../../test/helpers.js';
+import {
+  recordingLogger,
+  shapedCredential,
+  silentLogger,
+  testConfig,
+  testPlugins,
+} from '../../test/helpers.js';
 import { IndexingService } from './indexing.service.js';
 
 /**
@@ -112,6 +118,25 @@ describe('IndexingService', () => {
     const hits = await store.search('authenticate user');
     expect(hits[0]!.metadata.relativePath).toBe('auth.ts');
     expect(hits.every((hit) => !hit.metadata.relativePath.includes('node_modules'))).toBe(true);
+  });
+
+  it('never lets a credential inside an ordinary file reach the index', async () => {
+    // The gap the name-based deny-list cannot close: `notes.md` is exactly the kind
+    // of file this is meant to index, and nothing about it says "secret" but the
+    // bytes. The store outlives the file and is what the agent quotes, so this is
+    // the copy that must not hold it.
+    const token = shapedCredential('ghp_', 36);
+    await writeFile(join(root, 'notes.md'), `# Handover\n\nProd key is ${token}, ask Sam.\n`);
+
+    await service.startIndexing(root);
+    await settle(service);
+
+    const hits = await store.search('handover prod key');
+    const indexed = hits.map((hit) => hit.text).join('\n');
+    expect(indexed).not.toContain(token);
+    // The rest of the file is still there: redacting a value, not dropping a chunk,
+    // is what keeps the assistant able to answer about the file at all.
+    expect(indexed).toMatch(/Handover|ask Sam/);
   });
 
   it('honours .gitignore', async () => {

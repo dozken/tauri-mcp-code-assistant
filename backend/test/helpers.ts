@@ -74,3 +74,23 @@ export const testPlugins = async (): Promise<Context> => {
   await loadPlugins(ctx, BUILT_INS);
   return ctx;
 };
+
+const LOWER_ALPHANUMERIC = 'abcdefghijklmnopqrstuvwxyz0123456789';
+const UPPER_ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+/**
+ * A string shaped like a credential and deliberately not one.
+ *
+ * Assembled at runtime rather than written out, so no file in this repository
+ * contains a literal a scanner can match. That is not hypothetical: GitHub's push
+ * protection blocked the first commit of the secret-redaction tests, having
+ * recognised their fixtures as Slack, Stripe and GitLab tokens. It was right to,
+ * and it is the cheapest possible evidence that the shapes being tested are the
+ * shapes that matter.
+ */
+export const shapedCredential = (prefix: string, length: number, upper = false): string => {
+  const alphabet = upper ? UPPER_ALPHANUMERIC : LOWER_ALPHANUMERIC;
+  const body = Array.from({ length }, (_, index) => alphabet[index % alphabet.length]).join('');
+
+  return `${prefix}${body}`;
+};

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HashingEmbeddings } from '../vector/embeddings.js';
 import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
-import { testConfig } from '../../test/helpers.js';
+import { shapedCredential, testConfig } from '../../test/helpers.js';
 import { CodeToolsService } from './code-tools.service.js';
 import { formatSearchResult } from './formatters.js';
 
@@ -86,6 +86,34 @@ describe('CodeToolsService', () => {
         endLine: 19,
       });
       expect(result.matches[0]!.score).toBeGreaterThan(0);
+    });
+
+    it('redacts a credential an older index still holds', async () => {
+      // Seeded straight into the store, the way an index built before the redactor
+      // existed holds it. Re-indexing is the user's choice, not ours, so the way
+      // out is guarded as well as the way in — the same reasoning as the path
+      // filter beside it.
+      await store.upsert([
+        {
+          id: 'stale-chunk',
+          text: `const token = "${shapedCredential('ghp_', 36)}";`,
+          metadata: {
+            path: join(root, 'legacy.ts'),
+            relativePath: 'legacy.ts',
+            root,
+            language: 'typescript',
+            startLine: 1,
+            endLine: 1,
+            indexedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+      ]);
+
+      const result = await tools.searchCode({ query: 'token', limit: 10 });
+
+      const text = result.matches.map((match) => match.text).join('\n');
+      expect(text).not.toContain(shapedCredential('ghp_', 36));
+      expect(text).toContain('const token =');
     });
 
     it('formats an empty result as actionable guidance rather than silence', async () => {
