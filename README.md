@@ -633,12 +633,28 @@ workflow exports the Apple group only when there is a certificate in it.
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | A macOS build Gatekeeper will open |
 | `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`                               | Notarisation on top of that        |
 
-There is **no auto-update**: a new version is a new download. Turning it on is not a
-config flag — `bundle.createUpdaterArtifacts` refuses to build without a public key, so it
-needs a keypair generated with `npm run tauri -w app -- signer generate`, the private half
-held as a repository secret, the public half committed, `tauri-plugin-updater` registered,
-and a published (not draft) release for the app to read a manifest from. Until all of that
-exists, passing signing secrets would sign nothing, so the workflow does not ask for them.
+### Auto-updates are one command away, and off
+
+Updates are verified against a public key baked into the bundle and signed with a private
+key that must not be in the repository — so this is the one feature that cannot be
+committed on your behalf. Everything else already is: `tauri-plugin-updater` is compiled
+in and registers itself only when `plugins.updater` is present, so a build without it is
+untouched.
+
+```bash
+npm run updater:enable
+```
+
+That generates a keypair, writes the public half and the release endpoint into
+`tauri.conf.json`, and prints the two steps left: store the private half as
+`TAURI_SIGNING_PRIVATE_KEY`, then cut a release. It refuses to overwrite an existing key,
+because a new one cannot verify updates the old one signed — that would strand every copy
+already installed.
+
+Installed apps read the **latest published** release, so a draft reaches nobody until a
+human has looked at it. And note the shape of the password: a key generated without one
+still needs `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to be _set_ and empty, or the build stops
+at a prompt nobody can answer. The workflow does that for you.
 
 ### Icons
 
@@ -717,7 +733,8 @@ Three rules the runtime enforces, and one it does not:
 
 ### Known limitations
 
-- There is no auto-update; a new version is a new download. See [Releasing](#releasing).
+- Auto-update ships off, because it needs a signing key this repository does not have.
+  `npm run updater:enable` turns it on; see [Releasing](#releasing).
 - Watching uses `fs.watch` with `recursive: true`, which not every platform and filesystem
   supports; where it is missing the app says so and falls back to indexing on request.
 - The secret deny-list is name-based; it will not spot a token pasted into `notes.md`.

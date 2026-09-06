@@ -106,12 +106,32 @@ jobs:
             printf '%s<<COMPANION_SECRET_EOF\n%s\nCOMPANION_SECRET_EOF\n' "$name" "${!name}"
           done >> "$GITHUB_ENV"
 
+      # The same trap as the Apple group, one release later: an absent secret is an
+      # empty string. Harmless while nothing asks to be signed, but once
+      # `npm run updater:enable` has been run it would reach the signer as a key.
+      - name: Enable update signing, when a key is configured
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "No updater signing key configured; this bundle carries no update signature."
+            exit 0
+          fi
+          {
+            printf 'TAURI_SIGNING_PRIVATE_KEY<<COMPANION_SECRET_EOF\n%s\nCOMPANION_SECRET_EOF\n' \
+              "$TAURI_SIGNING_PRIVATE_KEY"
+            # Passed even when empty, because a key generated without a password
+            # still needs the variable — unset, the build stops at a prompt.
+            printf 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD<<COMPANION_SECRET_EOF\n%s\nCOMPANION_SECRET_EOF\n' \
+              "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No `TAURI_SIGNING_PRIVATE_KEY`: nothing here produces updater artefacts
-          # to sign. Passing a key that signs nothing reads like the updater works.
-          # The Apple variables arrive from the step above, or not at all.
+          # Signing variables arrive from the steps above, or not at all.
         with:
           projectPath: app
           tagName: ${{ inputs.tag || github.ref_name }}

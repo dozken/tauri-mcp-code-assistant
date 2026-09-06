@@ -137,6 +137,26 @@ fn app_info(backend: State<'_, Backend>) -> AppInfo {
     }
 }
 
+/// Registers the updater, but only in a build that was given one to use.
+///
+/// `plugins.updater` in `tauri.conf.json` carries the public key updates are
+/// verified against, and the plugin refuses to initialise without it — so
+/// registering it unconditionally would break every build that has not been
+/// through `npm run updater:enable`. Compiled in, inert until configured: that is
+/// what lets turning it on be a configuration change rather than a code change.
+#[cfg(desktop)]
+fn register_updater(handle: &tauri::AppHandle) {
+    if !handle.config().plugins.0.contains_key("updater") {
+        return;
+    }
+
+    if let Err(error) = handle.plugin(tauri_plugin_updater::Builder::new().build()) {
+        // Not fatal: an app that cannot check for updates is still an app, and
+        // refusing to start over it would be the worse failure.
+        eprintln!("the updater is configured but did not load: {error}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
@@ -149,6 +169,8 @@ pub fn run() {
         .setup(|app| {
             let backend = start_backend(app.handle());
             app.manage(backend);
+            #[cfg(desktop)]
+            register_updater(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

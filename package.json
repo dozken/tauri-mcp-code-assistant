@@ -42,7 +42,8 @@
     "test": "npm run test --workspaces --if-present",
     "test:cov": "npm run test:cov --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace app",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "updater:enable": "node scripts/enable-updater.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
