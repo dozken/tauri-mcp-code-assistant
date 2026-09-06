@@ -15,11 +15,11 @@ describe('createPluginContext', () => {
     expect(ctx.provided).toEqual(['chatModels', 'vectorStores']);
   });
 
-  it('ships both stores and both models, and says so by name', async () => {
+  it('ships the stores and models it does, and says so by name', async () => {
     const ctx = await createPluginContext(testConfig());
 
     expect(ctx.require('vectorStores').kinds).toEqual(['chroma', 'memory']);
-    expect(ctx.require('chatModels').kinds).toEqual(['openai', 'stub']);
+    expect(ctx.require('chatModels').kinds).toEqual(['ollama', 'openai', 'stub']);
   });
 
   it('declares whether each store survives a restart, rather than leaving it to be guessed', async () => {

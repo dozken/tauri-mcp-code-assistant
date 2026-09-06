@@ -39,8 +39,14 @@ export interface AppConfig {
      * the registered kinds listed, which is a better error than a type would give.
      */
     readonly provider: string;
-    readonly model: string;
+    /**
+     * Unset unless `LLM_MODEL` names one. The default belongs to the provider,
+     * which is the only thing that knows what models it has — `gpt-4o-mini` is a
+     * fine default for OpenAI and a name Ollama would try to pull and fail on.
+     */
+    readonly model?: string;
     readonly apiKey?: string;
+    /** Where the provider lives, for one that is not at its own default. */
     readonly baseUrl?: string;
     readonly temperature: number;
     /**
@@ -173,9 +179,11 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     },
     llm: {
       provider: text(env.LLM_PROVIDER) ?? (apiKey ? 'openai' : 'stub'),
-      model: env.LLM_MODEL ?? 'gpt-4o-mini',
+      model: text(env.LLM_MODEL),
       apiKey,
-      baseUrl: text(env.OPENAI_BASE_URL),
+      // `OPENAI_BASE_URL` still works, but the setting is not OpenAI's: an Ollama
+      // on another host needs the same field.
+      baseUrl: text(env.LLM_BASE_URL) ?? text(env.OPENAI_BASE_URL),
       temperature: Number(env.LLM_TEMPERATURE ?? 0),
       timeoutMs: num(env.LLM_TIMEOUT_MS, 120_000),
       maxConversations: num(env.MAX_CONVERSATIONS, 200),

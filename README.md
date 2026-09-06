@@ -70,9 +70,27 @@ the app logs a warning and carries on indexing on demand.
 
 ### Optional: a real model
 
+A local one, which needs no key and sends nothing off the machine — for a tool that
+reads your source, that is the difference between "try it" and "ask your employer
+first":
+
 ```bash
+ollama pull qwen2.5-coder:7b
+export LLM_PROVIDER=ollama
+```
+
+The model has to **support tools**. Every turn binds `search_code` and friends, and a
+model without tool support answers from nothing at all — fluently, and with no error to
+say so. `qwen2.5-coder:7b` is the default because it has them and knows code;
+`LLM_MODEL` picks another, `LLM_BASE_URL` an Ollama somewhere other than
+`127.0.0.1:11434`.
+
+Or a hosted one:
+
+```bash
+export LLM_PROVIDER=openai
 export OPENAI_API_KEY=sk-...
-export OPENAI_BASE_URL=https://api.openai.com/v1   # or any OpenAI-compatible gateway
+export LLM_BASE_URL=https://api.openai.com/v1   # or any OpenAI-compatible gateway
 ```
 
 Copy `.env.example` for the full list of settings.
