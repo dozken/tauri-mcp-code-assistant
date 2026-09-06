@@ -25,7 +25,8 @@ Three things came out of the last full run, and they are the pattern to follow:
 
 ### The score is a floor, not a measurement
 
-Project-wide, last measured: contracts 90%, backend 85%, app 91%, in about forty minutes.
+Project-wide, last measured: contracts 90.00%, backend 86.09%, app 90.74%, in just under
+fifty minutes.
 The `break` threshold in each `stryker.config.json` sits a few points under that, so ordinary
 churn passes and a real regression fails the weekly job.
 

@@ -368,7 +368,7 @@ survivor list produced work worth doing.
 | ----------- | --------- | --- | ------------------------------------------------------------------------- |
 | `contracts` | 32%       | 90% | Stream-event literals, then a query schema nobody parsed a real path with |
 | `app`       | 62%       | 91% | Branches the component tests skipped; later, styles worth separating      |
-| `backend`   | 65%       | 85% | Lookup tables, two untested modules, and every file added since           |
+| `backend`   | 65%       | 86% | Lookup tables, two untested modules, and every file added since           |
 
 The backend's five weakest files carried most of that move:
 
@@ -391,6 +391,22 @@ files holding properties that matter most and are easiest to forget: credentials
 _removed_ rather than masked, the MCP logger writes to fd 2 because stdout is the
 JSON-RPC channel, and the spawned MCP child gets its configuration explicitly because a
 stdio child does not inherit the parent environment.
+
+The latest round covered the five changes that shipped the desktop bundle, and its
+survivor list held three findings. `Authorization: Bearer ` with a trailing space parsed
+to the empty string as a credential — harmless against the token `loadConfig` actually
+produces, and one config change from not being. The `sqlite3` fallback under
+`node:sqlite` had never executed on any machine, so a safety net was untested code
+claiming to be one. And every nested-`.gitignore` test used a bare filename, which
+matches whether or not the path is made relative to the file declaring it, leaving the
+whole point of the layer unverified. `file-walker.ts` finished at 98%, and
+`metadata-store.ts`, `local-access.ts` and `conversation.store.ts` at 100%.
+
+Three of the survivors were answered by deleting code rather than testing it. `isIgnored`
+walked an index backwards behind a guard against an element that could not be missing —
+and the guard was masking an off-by-one in the loop that produced it. `toReversed()` has
+neither. A pair of mutants that mask each other is usually a sign that one of the two
+lines should not be there.
 
 Deliberate exclusions, because a mutant that no sensible test would kill only dilutes
 the signal:
