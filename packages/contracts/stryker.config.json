@@ -15,8 +15,8 @@
   "timeoutMS": 30000,
   "concurrency": 2,
   "thresholds": {
-    "high": 90,
-    "low": 82,
-    "break": 78
+    "high": 92,
+    "low": 88,
+    "break": 86
   }
 }

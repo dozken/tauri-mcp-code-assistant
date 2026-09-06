@@ -265,7 +265,7 @@ npm run check      # format:check → lint → typecheck → knip → deps → t
 | `npm run typecheck`     | tsc, `strict` + `noUncheckedIndexedAccess` | Every index access is `T \| undefined` until you narrow it         |
 | `npm run knip`          | Knip                                       | Unused files, exports and dependencies                             |
 | `npm run deps`          | dependency-cruiser                         | Module boundaries and cycles (see below)                           |
-| `npm test`              | Vitest                                     | 915 unit, container and MCP-protocol tests                         |
+| `npm test`              | Vitest                                     | 916 unit, container and MCP-protocol tests                         |
 | `npm run test:cov`      | Vitest + v8                                | Coverage thresholds, enforced per workspace                        |
 | `npm run test:e2e`      | Playwright                                 | The real browser build against the real backend                    |
 | `npm run mutation`      | Stryker                                    | Whether the tests would actually notice a bug                      |
@@ -357,11 +357,11 @@ minutes. It is the check that grades the other checks: coverage says a line ran,
 Stryker says a test would have _noticed_. Every number below moved because reading the
 survivor list produced work worth doing.
 
-| Workspace   | First run | After acting on it | What the survivors were                            |
-| ----------- | --------- | ------------------ | -------------------------------------------------- |
-| `contracts` | 32%       | 81%                | Nothing pinned the stream-event literals           |
-| `app`       | 62%       | 69%                | Branches the component tests skipped               |
-| `backend`   | 65%       | 71%                | Lookup tables, plus two genuinely untested modules |
+| Workspace   | First run | Now | What the survivors turned out to be                                       |
+| ----------- | --------- | --- | ------------------------------------------------------------------------- |
+| `contracts` | 32%       | 90% | Stream-event literals, then a query schema nobody parsed a real path with |
+| `app`       | 62%       | 91% | Branches the component tests skipped; later, styles worth separating      |
+| `backend`   | 65%       | 85% | Lookup tables, two untested modules, and every file added since           |
 
 The backend's five weakest files carried most of that move:
 

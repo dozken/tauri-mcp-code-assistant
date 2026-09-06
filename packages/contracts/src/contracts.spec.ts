@@ -64,10 +64,14 @@ describe('chatRequestSchema', () => {
 });
 
 describe('indexing schemas', () => {
-  it('trims and requires a path', () => {
-    expect(indexRequestSchema.parse({ path: ' /repo ' })).toEqual({ path: '/repo' });
-    expect(indexRequestSchema.safeParse({ path: '  ' }).success).toBe(false);
-    expect(removeRootQuerySchema.safeParse({}).success).toBe(false);
+  it('trims and requires a path, in the body and in the query alike', () => {
+    // A path pasted from a file manager arrives with a trailing space more often
+    // than not, and `DELETE /index?path=` must behave exactly as `POST` does.
+    for (const schema of [indexRequestSchema, removeRootQuerySchema]) {
+      expect(schema.parse({ path: ' /repo ' })).toEqual({ path: '/repo' });
+      expect(schema.safeParse({ path: '  ' }).success).toBe(false);
+      expect(schema.safeParse({}).success).toBe(false);
+    }
   });
 
   it('accepts a status payload with no active job', () => {
@@ -113,6 +117,19 @@ describe('tool schemas', () => {
   it('leaves generate_snippet language optional so the service can default it', () => {
     expect(generateSnippetSchema.parse({ prompt: 'debounce' })).toEqual({ prompt: 'debounce' });
     expect(generateSnippetSchema.safeParse({ prompt: 'x', language: '' }).success).toBe(false);
+  });
+});
+
+describe('rejection messages', () => {
+  it('name the field that is missing, because that message reaches the user', () => {
+    // The ZodValidationPipe puts these straight into the 400 body, and "Invalid
+    // input" is the difference between a fixable mistake and a support question.
+    const message = (result: { error?: { issues: { message: string }[] } }): string =>
+      result.error?.issues[0]?.message ?? '';
+
+    expect(message(chatRequestSchema.safeParse({ message: '  ' }))).toBe('message is required');
+    expect(message(indexRequestSchema.safeParse({ path: '  ' }))).toBe('path is required');
+    expect(message(removeRootQuerySchema.safeParse({ path: '  ' }))).toBe('path is required');
   });
 });
 

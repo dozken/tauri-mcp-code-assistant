@@ -25,7 +25,7 @@ Three things came out of the last full run, and they are the pattern to follow:
 
 ### The score is a floor, not a measurement
 
-Project-wide, last measured: contracts 81%, backend 84%, app 88%, in about forty minutes.
+Project-wide, last measured: contracts 90%, backend 85%, app 91%, in about forty minutes.
 The `break` threshold in each `stryker.config.json` sits a few points under that, so ordinary
 churn passes and a real regression fails the weekly job.
 
@@ -68,6 +68,11 @@ and the mutant that empties `forEach`'s callback makes `Object.fromEntries` thro
 single test runs. Injected, the file reports "no tests" and every one of its 53 tests errors —
 about as killed as a mutant can be. The report calls it survived, because no test completed to
 be counted.
+
+The contracts package's five remaining survivors are all that shape: emptying any member of
+`chatStreamEventSchema` leaves a discriminated union with no discriminator, which zod rejects
+while the module is still loading. Injected, the suite reports "no tests". They are the reason
+that package reads 90% rather than 100%, and they are not a gap.
 
 One more mechanical trap, worth knowing before it costs an hour: `// Stryker disable
 next-line` reaches the line after the comment, and for a mutant deep inside a call's
