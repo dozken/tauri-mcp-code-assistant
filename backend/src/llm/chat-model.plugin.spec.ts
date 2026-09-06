@@ -1,13 +1,12 @@
-import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HumanMessage } from '@langchain/core/messages';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { Context } from '../plugins/context.js';
 import { loadConfig, type AppConfig } from '../config/configuration.js';
 import { chatModelPlugin, type ChatModelRegistry } from './chat-model.plugin.js';
+import { startFakeOllama, type FakeOllama } from '../../test/fake-ollama.js';
 
 const registry = async (): Promise<ChatModelRegistry> => {
   const root = Context.create();
@@ -42,75 +41,37 @@ describe('chat model registry', () => {
 
 /**
  * Driven against a server speaking Ollama's wire protocol rather than a mocked
- * client, because the thing worth checking is not that we call a constructor —
- * it is that the options we hand it come out on the wire as Ollama expects, and
- * that a streamed reply reaches the caller a token at a time. A provider nobody
- * has ever run is a guess, and this repository has been bitten by one already.
+ * client: what matters is that the options we hand it come out as Ollama expects,
+ * that a streamed reply reaches the caller a token at a time, and that a tool call
+ * comes back as one. See `test/fake-ollama.ts`.
  */
 describe('the ollama provider', () => {
-  let server: Server | undefined;
+  let ollama: FakeOllama | undefined;
 
   afterEach(async () => {
-    server?.close();
-    if (server) await once(server, 'close');
-    server = undefined;
+    await ollama?.close();
+    ollama = undefined;
   });
 
-  interface OllamaToolCall {
-    readonly function: { readonly name: string; readonly arguments: Record<string, unknown> };
-  }
+  const model = async (overrides: Partial<AppConfig['llm']> = {}): Promise<BaseChatModel> => {
+    const base = configWith(overrides);
 
-  /** Answers `/api/chat` with newline-delimited JSON, the way Ollama streams. */
-  const fakeOllama = async (
-    reply: { tokens?: readonly string[]; toolCalls?: readonly OllamaToolCall[] } = {},
-  ): Promise<{ url: string; seen: { path?: string; body?: Record<string, unknown> } }> => {
-    const seen: { path?: string; body?: Record<string, unknown> } = {};
-
-    server = createServer((request, response) => {
-      const chunks: Buffer[] = [];
-      request.on('data', (chunk: Buffer) => chunks.push(chunk));
-      request.on('end', () => {
-        seen.path = request.url;
-        seen.body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
-
-        response.writeHead(200, { 'content-type': 'application/x-ndjson' });
-        for (const content of reply.tokens ?? []) {
-          response.write(
-            `${JSON.stringify({ message: { role: 'assistant', content }, done: false })}\n`,
-          );
-        }
-        response.end(
-          `${JSON.stringify({
-            message: { role: 'assistant', content: '', tool_calls: reply.toolCalls },
-            done: true,
-            done_reason: 'stop',
-          })}\n`,
-        );
-      });
+    return (await registry()).create('ollama', {
+      config: { ...base, ollama: { baseUrl: ollama?.url ?? '' } },
     });
-
-    server.listen(0, '127.0.0.1');
-    await once(server, 'listening');
-
-    return { url: `http://127.0.0.1:${String((server.address() as AddressInfo).port)}`, seen };
   };
 
   it('streams a reply from a real Ollama conversation', async () => {
-    const { url, seen } = await fakeOllama({ tokens: ['Hello ', 'from ', 'Ollama'] });
-    const model = await (
-      await registry()
-    ).create('ollama', {
-      config: configWith({ baseUrl: url, temperature: 0.4 }),
-    });
+    ollama = await startFakeOllama({ tokens: ['Hello ', 'from ', 'Ollama'] });
 
     const received: string[] = [];
-    for await (const chunk of await model.stream([new HumanMessage('hi')])) {
+    for await (const chunk of await (await model()).stream([new HumanMessage('hi')])) {
       received.push(String(chunk.content));
     }
 
     expect(received.join('')).toBe('Hello from Ollama');
-    expect(seen.path).toBe('/api/chat');
-    expect(seen.body).toMatchObject({ model: 'qwen2.5-coder:7b', stream: true });
+    expect(ollama.seen.path).toBe('/api/chat');
+    expect(ollama.seen.body).toMatchObject({ model: 'qwen2.5-coder:7b', stream: true });
   });
 
   it('puts the bound tools on the wire and reads a tool call back out', async () => {
@@ -122,18 +83,14 @@ describe('the ollama provider', () => {
       description: 'Search the indexed code',
       schema: z.object({ query: z.string() }),
     });
-    const { url, seen } = await fakeOllama({
+    ollama = await startFakeOllama({
       toolCalls: [{ function: { name: 'search_code', arguments: { query: 'auth' } } }],
     });
-    const model = await (
-      await registry()
-    ).create('ollama', { config: configWith({ baseUrl: url }) });
 
-    const reply = await model
-      .bindTools?.([searchCode])
-      .invoke([new HumanMessage('where do we auth?')]);
+    const bound = (await model()).bindTools?.([searchCode]);
+    const reply = await bound?.invoke([new HumanMessage('where do we auth?')]);
 
-    expect(seen.body?.tools).toMatchObject([
+    expect(ollama.seen.body?.tools).toMatchObject([
       {
         type: 'function',
         function: { name: 'search_code', description: 'Search the indexed code' },
@@ -143,16 +100,13 @@ describe('the ollama provider', () => {
   });
 
   it('sends the model and temperature it was configured with', async () => {
-    const { url, seen } = await fakeOllama({ tokens: ['ok'] });
-    const model = await (
-      await registry()
-    ).create('ollama', {
-      config: configWith({ baseUrl: url, model: 'llama3.1:8b', temperature: 0.7 }),
-    });
+    ollama = await startFakeOllama({ tokens: ['ok'] });
 
-    await model.invoke([new HumanMessage('hi')]);
+    await (
+      await model({ model: 'llama3.1:8b', temperature: 0.7 })
+    ).invoke([new HumanMessage('hi')]);
 
-    expect(seen.body).toMatchObject({ model: 'llama3.1:8b' });
-    expect(seen.body?.options).toMatchObject({ temperature: 0.7 });
+    expect(ollama.seen.body).toMatchObject({ model: 'llama3.1:8b' });
+    expect(ollama.seen.body?.options).toMatchObject({ temperature: 0.7 });
   });
 });

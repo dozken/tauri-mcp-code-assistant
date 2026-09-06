@@ -18,9 +18,6 @@ declare module '../plugins/context.js' {
   }
 }
 
-/** Where Ollama listens unless told otherwise. Loopback, like everything else here. */
-const OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434';
-
 /**
  * Tool-capable and code-shaped, which both matter: every turn binds `search_code`
  * and friends, and a model without tool support answers from nothing at all.
@@ -65,7 +62,7 @@ export const chatModelPlugin: Plugin = {
       'ollama',
       ({ config }) =>
         new ChatOllama({
-          baseUrl: config.llm.baseUrl ?? OLLAMA_DEFAULT_URL,
+          baseUrl: config.ollama.baseUrl,
           model: config.llm.model ?? OLLAMA_DEFAULT_MODEL,
           temperature: config.llm.temperature,
         }),

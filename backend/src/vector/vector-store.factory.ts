@@ -1,24 +1,11 @@
 import type { Embeddings } from '@langchain/core/embeddings';
-import { OpenAIEmbeddings } from '@langchain/openai';
 import type { AppConfig } from '../config/configuration.js';
 import type { Context } from '../plugins/context.js';
-import { HashingEmbeddings } from './embeddings.js';
 import type { VectorStore } from './vector-store.types.js';
 
-export const createEmbeddings = (config: AppConfig): Embeddings => {
-  if (config.embeddings.provider === 'openai') {
-    if (!config.llm.apiKey) {
-      throw new Error('EMBEDDINGS_PROVIDER=openai requires OPENAI_API_KEY');
-    }
-    return new OpenAIEmbeddings({
-      apiKey: config.llm.apiKey,
-      model: config.embeddings.model,
-      dimensions: config.embeddings.dimensions,
-      configuration: config.llm.baseUrl ? { baseURL: config.llm.baseUrl } : undefined,
-    });
-  }
-  return new HashingEmbeddings({ dimensions: config.embeddings.dimensions });
-};
+/** A registry lookup, so an embedder can come from a plugin like everything else. */
+export const createEmbeddings = async (plugins: Context, config: AppConfig): Promise<Embeddings> =>
+  plugins.require('embeddings').create(config.embeddings.provider, { config });
 
 /**
  * Prefers Chroma and degrades to the in-memory store when no server answers, so

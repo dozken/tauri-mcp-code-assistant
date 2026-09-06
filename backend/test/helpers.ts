@@ -2,8 +2,7 @@ import type { PinoLogger } from 'nestjs-pino';
 import { loadConfig, type AppConfig } from '../src/config/configuration.js';
 import { Context } from '../src/plugins/context.js';
 import { loadPlugins } from '../src/plugins/loader.js';
-import { vectorStorePlugin } from '../src/vector/vector-store.plugin.js';
-import { chatModelPlugin } from '../src/llm/chat-model.plugin.js';
+import { BUILT_INS } from '../src/extensions/extensions.module.js';
 
 /** A PinoLogger stand-in: the unit tests care about behaviour, not log output. */
 export const silentLogger = (): PinoLogger => {
@@ -70,9 +69,8 @@ export const testConfig = (overrides: Partial<AppConfig> = {}): AppConfig => {
  */
 export const testPlugins = async (): Promise<Context> => {
   const ctx = Context.create();
-  await loadPlugins(ctx, [
-    { plugin: vectorStorePlugin, config: undefined as never },
-    { plugin: chatModelPlugin, config: undefined as never },
-  ]);
+  // The application's own list, not a copy of it: a helper that restates the
+  // built-ins is a helper that stops matching them.
+  await loadPlugins(ctx, BUILT_INS);
   return ctx;
 };

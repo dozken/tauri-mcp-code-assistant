@@ -82,8 +82,18 @@ export LLM_PROVIDER=ollama
 The model has to **support tools**. Every turn binds `search_code` and friends, and a
 model without tool support answers from nothing at all — fluently, and with no error to
 say so. `qwen2.5-coder:7b` is the default because it has them and knows code;
-`LLM_MODEL` picks another, `LLM_BASE_URL` an Ollama somewhere other than
+`LLM_MODEL` picks another, `OLLAMA_BASE_URL` an Ollama somewhere other than
 `127.0.0.1:11434`.
+
+Chat is only half of it: indexing embeds every chunk, so leaving embeddings on
+`openai` sends the code out anyway. `EMBEDDINGS_PROVIDER=ollama` closes that —
+and note that changing embedder invalidates an existing index, because vectors
+are only comparable with others from the same model.
+
+```bash
+ollama pull nomic-embed-text
+export EMBEDDINGS_PROVIDER=ollama
+```
 
 Or a hosted one:
 
@@ -91,6 +101,7 @@ Or a hosted one:
 export LLM_PROVIDER=openai
 export OPENAI_API_KEY=sk-...
 export LLM_BASE_URL=https://api.openai.com/v1   # or any OpenAI-compatible gateway
+export EMBEDDINGS_PROVIDER=openai
 ```
 
 Copy `.env.example` for the full list of settings.

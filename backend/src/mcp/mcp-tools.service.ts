@@ -21,7 +21,7 @@ const MCP_SERVER_NAME = 'ai-code-companion';
  * empty index.
  */
 export const mcpChildEnv = (config: AppConfig): Record<string, string> => {
-  const { chroma, embeddings, indexing, llm } = config;
+  const { chroma, embeddings, indexing, llm, ollama } = config;
   const env: Record<string, string | undefined> = {
     HOME: process.env.HOME,
     NODE_ENV: process.env.NODE_ENV,
@@ -36,7 +36,10 @@ export const mcpChildEnv = (config: AppConfig): Record<string, string> => {
     MAX_FILE_BYTES: String(indexing.maxFileBytes),
     METADATA_DB: config.metadataDb,
     OPENAI_API_KEY: llm.apiKey,
-    OPENAI_BASE_URL: llm.baseUrl,
+    LLM_BASE_URL: llm.baseUrl,
+    // The child embeds too, so a local Ollama on a non-default address has to
+    // reach it — otherwise it quietly falls back to loopback and finds nothing.
+    OLLAMA_BASE_URL: ollama.baseUrl,
     // Guard against recursion: the child must never spawn another MCP server.
     MCP_CLIENT_ENABLED: 'false',
   };

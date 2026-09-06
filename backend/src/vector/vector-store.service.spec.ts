@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HashingEmbeddings } from './embeddings.js';
 import { createEmbeddings, selectVectorStore } from './vector-store.factory.js';
 import { VectorStoreService } from './vector-store.service.js';
 import { silentLogger, testConfig, testPlugins } from '../../test/helpers.js';
@@ -18,42 +17,12 @@ const chunk = {
   },
 };
 
-describe('createEmbeddings', () => {
-  it('uses deterministic local embeddings by default', () => {
-    const embeddings = createEmbeddings(testConfig());
-
-    expect(embeddings).toBeInstanceOf(HashingEmbeddings);
-  });
-
-  it('honours the configured dimension count', async () => {
-    const config = testConfig();
-    const embeddings = createEmbeddings({
-      ...config,
-      embeddings: { ...config.embeddings, dimensions: 96 },
-    });
-
-    expect(await embeddings.embedQuery('hello')).toHaveLength(96);
-  });
-
-  it('refuses OpenAI embeddings without a key rather than failing on first use', () => {
-    const config = testConfig();
-
-    expect(() =>
-      createEmbeddings({
-        ...config,
-        embeddings: { ...config.embeddings, provider: 'openai' },
-        llm: { ...config.llm, apiKey: undefined },
-      }),
-    ).toThrow(/OPENAI_API_KEY/);
-  });
-});
-
 describe('createVectorStore', () => {
   it('uses the in-memory store when Chroma is disabled, without probing the network', async () => {
     const store = await selectVectorStore(
       await testPlugins(),
       testConfig(),
-      createEmbeddings(testConfig()),
+      await createEmbeddings(await testPlugins(), testConfig()),
     );
 
     expect(store.kind).toBe('memory');
@@ -64,7 +33,7 @@ describe('createVectorStore', () => {
     const store = await selectVectorStore(
       await testPlugins(),
       { ...config, vector: { store: 'memory' }, chroma: { ...config.chroma, enabled: true } },
-      createEmbeddings(config),
+      await createEmbeddings(await testPlugins(), config),
     );
 
     // Named explicitly, so Chroma is not consulted even though it is enabled.
@@ -80,7 +49,7 @@ describe('createVectorStore', () => {
       selectVectorStore(
         await testPlugins(),
         { ...config, vector: { store: 'qdrant' } },
-        createEmbeddings(config),
+        await createEmbeddings(await testPlugins(), config),
       ),
     ).rejects.toThrow(/"qdrant".*chroma, memory/s);
   });
@@ -93,7 +62,7 @@ describe('createVectorStore', () => {
       await testPlugins(),
       // Port 1 is reserved and refuses instantly, so this stays a fast unit test.
       { ...config, chroma: { ...config.chroma, enabled: true, url: 'http://127.0.0.1:1' } },
-      createEmbeddings(config),
+      await createEmbeddings(await testPlugins(), config),
       (reason: string) => reasons.push(reason),
     );
 
@@ -106,7 +75,7 @@ describe('VectorStoreService', () => {
   const build = async (): Promise<VectorStoreService> =>
     new VectorStoreService(
       testConfig(),
-      createEmbeddings(testConfig()),
+      await createEmbeddings(await testPlugins(), testConfig()),
       await testPlugins(),
       silentLogger(),
     );
@@ -136,7 +105,7 @@ describe('VectorStoreService', () => {
   });
 
   it('retries resolution after a failure instead of caching a broken store', async () => {
-    const embeddings = createEmbeddings(testConfig());
+    const embeddings = await createEmbeddings(await testPlugins(), testConfig());
     const spy = vi.spyOn(embeddings, 'embedDocuments');
     spy.mockRejectedValueOnce(new Error('embedder offline'));
 

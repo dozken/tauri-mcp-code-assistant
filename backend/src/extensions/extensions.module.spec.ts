@@ -12,14 +12,29 @@ describe('createPluginContext', () => {
     // wrong the app boots and then fails on first use, not at startup.
     const ctx = await createPluginContext(testConfig());
 
-    expect(ctx.provided).toEqual(['chatModels', 'vectorStores']);
+    expect(ctx.provided).toEqual(['chatModels', 'embeddings', 'vectorStores']);
   });
 
-  it('ships the stores and models it does, and says so by name', async () => {
+  it('ships the stores, embedders and models it does, and says so by name', async () => {
     const ctx = await createPluginContext(testConfig());
 
     expect(ctx.require('vectorStores').kinds).toEqual(['chroma', 'memory']);
+    expect(ctx.require('embeddings').kinds).toEqual(['hashing', 'ollama', 'openai']);
     expect(ctx.require('chatModels').kinds).toEqual(['ollama', 'openai', 'stub']);
+  });
+
+  it('refuses to start on an EMBEDDINGS_PROVIDER no plugin provides', async () => {
+    // The worst kind to get wrong silently: an index is only searchable by vectors
+    // from the embedder that wrote it, so a typo used to write a whole index that
+    // nothing could ever search, and say nothing about it.
+    const config = testConfig();
+
+    await expect(
+      createPluginContext({
+        ...config,
+        embeddings: { ...config.embeddings, provider: 'nomic' },
+      }),
+    ).rejects.toThrow(/"nomic".*hashing, ollama, openai/s);
   });
 
   it('declares whether each store survives a restart, rather than leaving it to be guessed', async () => {

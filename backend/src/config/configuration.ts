@@ -2,8 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-type EmbeddingsProvider = 'hashing' | 'openai';
-
 export interface AppConfig {
   readonly host: string;
   readonly port: number;
@@ -28,9 +26,19 @@ export interface AppConfig {
     readonly load: readonly string[];
   };
   readonly embeddings: {
-    readonly provider: EmbeddingsProvider;
+    /**
+     * A registry kind, like `llm.provider`. Naming one no plugin provides stops
+     * the app at startup — an embedder chosen by typo would otherwise write an
+     * index nothing can search, and say nothing about it.
+     */
+    readonly provider: string;
     readonly dimensions: number;
-    readonly model: string;
+    /** Unset unless `EMBEDDINGS_MODEL` names one; the default belongs to the provider. */
+    readonly model?: string;
+  };
+  /** Where a local Ollama listens. Used by both the chat model and the embedder. */
+  readonly ollama: {
+    readonly baseUrl: string;
   };
   readonly llm: {
     /**
@@ -128,12 +136,6 @@ const bool = (value: string | undefined, fallback: boolean): boolean => {
 };
 
 /** Accepts a value only if it is one of `allowed`; anything else takes the fallback. */
-const oneOf = <T extends string>(
-  value: string | undefined,
-  allowed: readonly T[],
-  fallback: T,
-): T => (allowed.includes(value as T) ? (value as T) : fallback);
-
 const list = (value: string | undefined, fallback: string[]): string[] => {
   const items = (value ?? '')
     .split(',')
@@ -169,14 +171,11 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     embeddings: {
       // Without an API key we fall back to deterministic local embeddings so the
       // whole retrieval pipeline still works offline.
-      provider: oneOf<EmbeddingsProvider>(
-        env.EMBEDDINGS_PROVIDER,
-        ['hashing', 'openai'],
-        apiKey ? 'openai' : 'hashing',
-      ),
+      provider: text(env.EMBEDDINGS_PROVIDER) ?? (apiKey ? 'openai' : 'hashing'),
       dimensions: num(env.EMBEDDINGS_DIMENSIONS, 384),
-      model: env.EMBEDDINGS_MODEL ?? 'text-embedding-3-small',
+      model: text(env.EMBEDDINGS_MODEL),
     },
+    ollama: { baseUrl: text(env.OLLAMA_BASE_URL) ?? 'http://127.0.0.1:11434' },
     llm: {
       provider: text(env.LLM_PROVIDER) ?? (apiKey ? 'openai' : 'stub'),
       model: text(env.LLM_MODEL),

@@ -73,11 +73,22 @@ describe('mcpChildEnv', () => {
       CHROMA_COLLECTION: config.chroma.collection,
       EMBEDDINGS_PROVIDER: config.embeddings.provider,
       EMBEDDINGS_DIMENSIONS: String(config.embeddings.dimensions),
-      EMBEDDINGS_MODEL: config.embeddings.model,
       INDEX_ALLOWED_ROOTS: config.indexing.allowedRoots.join(','),
       MAX_FILE_BYTES: String(config.indexing.maxFileBytes),
       METADATA_DB: config.metadataDb,
+      OLLAMA_BASE_URL: config.ollama.baseUrl,
     });
+  });
+
+  it('forwards a model only when one was chosen', () => {
+    // An unset setting must be absent rather than the string "undefined", which
+    // the child would read as a model by that name and fail on.
+    const config = testConfig();
+
+    expect(mcpChildEnv(config)).not.toHaveProperty('EMBEDDINGS_MODEL');
+    expect(
+      mcpChildEnv({ ...config, embeddings: { ...config.embeddings, model: 'nomic-embed-text' } }),
+    ).toMatchObject({ EMBEDDINGS_MODEL: 'nomic-embed-text' });
   });
 
   it('stops the child from spawning a grandchild', () => {
@@ -122,7 +133,7 @@ describe('mcpChildEnv', () => {
 
     expect(env).toMatchObject({
       OPENAI_API_KEY: 'sk-test',
-      OPENAI_BASE_URL: 'https://gateway.example',
+      LLM_BASE_URL: 'https://gateway.example',
     });
   });
 });
