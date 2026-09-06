@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -144,6 +144,81 @@ describe('walkFiles', () => {
 
     expect(await collect(root)).not.toContain('vendored/lib.ts');
   });
+
+  it('keeps applying the root rules inside a directory that has rules of its own', async () => {
+    // The deepest opinion wins, but only where it has one. A nested file that says
+    // nothing about generated code must not turn the root's rule off for everything
+    // beneath it — which is what "keep asking the layer above" means.
+    await mkdir(join(root, 'packages', 'web'), { recursive: true });
+    await writeFile(join(root, '.gitignore'), '*.gen.ts\n');
+    await writeFile(join(root, 'packages', 'web', '.gitignore'), 'bundle.ts\n');
+    await writeFile(join(root, 'packages', 'web', 'api.gen.ts'), 'export const g = 7;\n');
+    await writeFile(join(root, 'packages', 'web', 'app.ts'), 'export const a = 1;\n');
+
+    const found = await collect(root);
+
+    expect(found).not.toContain('packages/web/api.gen.ts');
+    expect(found).toContain('packages/web/app.ts');
+  });
+
+  it('anchors a nested rule to its own directory, not to the root', async () => {
+    // A leading slash means "here and nowhere below". The pattern is written
+    // relative to the file that declares it, so the path has to be too: matching
+    // `packages/web/local.md` against `/local.md` finds nothing, and the rule
+    // silently does nothing at all.
+    await mkdir(join(root, 'packages', 'web', 'docs'), { recursive: true });
+    await writeFile(join(root, 'packages', 'web', '.gitignore'), '/local.md\n');
+    await writeFile(join(root, 'packages', 'web', 'local.md'), '# local\n');
+    await writeFile(join(root, 'packages', 'web', 'docs', 'local.md'), '# docs\n');
+
+    const found = await collect(root);
+
+    expect(found).not.toContain('packages/web/local.md');
+    expect(found).toContain('packages/web/docs/local.md');
+  });
+
+  it('reads a .gitignore from a directory that holds nothing else', async () => {
+    // The file is only opened when the entry list says it is there, and here that
+    // list is one .gitignore and one subdirectory — no other file to notice.
+    await mkdir(join(root, 'packages', 'web'), { recursive: true });
+    await writeFile(join(root, 'packages', '.gitignore'), 'bundle.ts\n');
+    await writeFile(join(root, 'packages', 'web', 'bundle.ts'), 'export const b = 2;\n');
+    await writeFile(join(root, 'packages', 'web', 'app.ts'), 'export const a = 1;\n');
+
+    const found = await collect(root);
+
+    expect(found).not.toContain('packages/web/bundle.ts');
+    expect(found).toContain('packages/web/app.ts');
+  });
+
+  it('does not let a directory-only rule swallow a file of the same name', async () => {
+    // The converse of the rule above: a trailing slash means directories, so the
+    // walk must ask about a file as a file. Asking both ways for everything would
+    // prune `notes.md` on a rule that was never about it.
+    await writeFile(join(root, '.gitignore'), 'notes.md/\n');
+
+    expect(await collect(root)).toContain('notes.md');
+  });
+
+  // Root has CAP_DAC_OVERRIDE, so mode 000 is still readable and there is no way to
+  // make the OS refuse. CI runs as an ordinary user, which is where this is checked.
+  it.skipIf(process.getuid?.() === 0 || process.getuid === undefined)(
+    'carries on when a .gitignore cannot be read',
+    async () => {
+      // One unreadable file must not take the walk down, and must not silently
+      // become permission to index what the layers above already ruled out.
+      await mkdir(join(root, 'packages', 'web'), { recursive: true });
+      await writeFile(join(root, '.gitignore'), 'secret.ts\n');
+      await writeFile(join(root, 'packages', 'web', '.gitignore'), '!secret.ts\n');
+      await writeFile(join(root, 'packages', 'web', 'secret.ts'), 'export const s = 1;\n');
+      await chmod(join(root, 'packages', 'web', '.gitignore'), 0o000);
+
+      const found = await collect(root);
+
+      expect(found).not.toContain('packages/web/secret.ts');
+      expect(found).toContain('src/deep.ts');
+    },
+  );
 
   it('honours a gitignore directory rule written without a trailing slash', async () => {
     // `ignore` matches a directory rule only when asked with the trailing slash,

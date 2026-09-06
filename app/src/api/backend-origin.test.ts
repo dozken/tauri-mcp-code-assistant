@@ -5,7 +5,6 @@ import {
   desktopPolicy,
   DEFAULT_BACKEND_URL,
 } from './backend-origin';
-import { backendUrl, resolveBackendUrl } from './config';
 
 describe('connectSources', () => {
   it('allows the backend over HTTP and the same host over WebSocket', () => {
@@ -53,14 +52,16 @@ describe('browserPolicy', () => {
     expect(browserPolicy(DEFAULT_BACKEND_URL)).not.toContain('ipc:');
   });
 
-  it('keeps the directives the app actually needs', () => {
-    const csp = browserPolicy(DEFAULT_BACKEND_URL);
-
-    // Emotion writes real <style> elements at runtime, so MUI cannot render at all
-    // without `unsafe-inline`, and data: URIs are how the icons arrive.
-    expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
-    expect(csp).toContain("img-src 'self' data:");
+  it('keeps the directives the app actually needs, separated', () => {
+    // The whole string, not three `toContain`s: directives run together are one
+    // malformed directive, and emotion writes real <style> elements at runtime so
+    // MUI cannot render at all without `unsafe-inline`.
+    expect(browserPolicy(DEFAULT_BACKEND_URL)).toBe(
+      "default-src 'self'; " +
+        "connect-src 'self' http://127.0.0.1:3001 ws://127.0.0.1:3001; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data:",
+    );
   });
 });
 
@@ -77,24 +78,21 @@ describe('desktopPolicy', () => {
     expect(desktopPolicy()).toContain('http://ipc.localhost');
   });
 
+  it('is exactly what `tauri.conf.json` has to carry', () => {
+    // Both policies are enforced in the desktop window and the build asserts they
+    // match, so this string is a contract with a file rather than a restatement.
+    expect(desktopPolicy()).toBe(
+      "default-src 'self'; " +
+        "connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* ws://127.0.0.1:*; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data:",
+    );
+  });
+
   it('is still confined to loopback', () => {
     // A wildcard port is not a wildcard host. Anything else on the machine, and
     // anything off it, is still refused.
     expect(desktopPolicy()).not.toContain('*://');
     expect(desktopPolicy()).not.toContain('localhost:*');
-  });
-});
-
-describe('backendUrl', () => {
-  it('is the configured default before anything asks the shell', () => {
-    // The tests run without VITE_BACKEND_URL, so this also proves the fallback is
-    // the same constant the CSP is generated from.
-    expect(backendUrl()).toBe(DEFAULT_BACKEND_URL);
-  });
-
-  it('stays the configured default in a browser, which has no shell to ask', async () => {
-    await resolveBackendUrl();
-
-    expect(backendUrl()).toBe(DEFAULT_BACKEND_URL);
   });
 });

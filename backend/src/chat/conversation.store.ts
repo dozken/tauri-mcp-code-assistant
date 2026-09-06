@@ -49,7 +49,7 @@ export class ConversationStore {
     // of a long one is what the model is least likely to need.
     this.conversations.set(conversationId, [...existing, ...kept].slice(-MAX_HISTORY_MESSAGES));
 
-    this.evictOldest();
+    this.evictLeastRecentlyUsed();
   }
 
   /** Forgets one conversation, for a client that wants to start over. */
@@ -62,11 +62,19 @@ export class ConversationStore {
     return this.conversations.size;
   }
 
-  private evictOldest(): void {
-    while (this.conversations.size > this.config.llm.maxConversations) {
-      const oldest = this.conversations.keys().next().value;
-      if (oldest === undefined) return;
-      this.conversations.delete(oldest);
+  /**
+   * Walks the keys in insertion order, dropping from the front until the store is
+   * back within its limit. `history` re-inserts the conversation it is asked for,
+   * so the front of that order is the least recently used one.
+   *
+   * Deleting while iterating a Map is defined behaviour, and iterating rather than
+   * repeatedly asking for the first key is what keeps this loop from needing a
+   * guard against a key that cannot be there.
+   */
+  private evictLeastRecentlyUsed(): void {
+    for (const conversationId of this.conversations.keys()) {
+      if (this.conversations.size <= this.config.llm.maxConversations) return;
+      this.conversations.delete(conversationId);
     }
   }
 }

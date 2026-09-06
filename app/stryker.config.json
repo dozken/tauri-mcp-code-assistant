@@ -16,8 +16,7 @@
     "!src/**/*.test.{ts,tsx}",
     "!src/main.tsx",
     "!src/types.ts",
-    "!src/test/**",
-    "!src/api/config.ts"
+    "!src/test/**"
   ],
   "ignorePatterns": ["dist", "coverage", "reports", "e2e", "src-tauri"],
   "timeoutMS": 60000,

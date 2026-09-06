@@ -118,6 +118,35 @@ describe('decideAccess', () => {
     expect(decision).toMatchObject({ allowed: false, reason: expect.stringContaining('loopback') });
   });
 
+  it('does not let an empty configured token turn a bare scheme into a credential', () => {
+    // `Authorization: Bearer` — with or without a trailing space — presents no
+    // credential, and must not parse to the empty string. `loadConfig` cannot
+    // produce an empty token today, and this is what keeps the parse from quietly
+    // depending on that: an empty secret would otherwise match an empty header.
+    const empty = configWith({ token: '' });
+
+    expect(allow({ host, authorization: 'Bearer' }, empty)).toBe(false);
+    expect(allow({ host, authorization: 'Bearer ' }, empty)).toBe(false);
+  });
+
+  it('takes everything after the scheme as the token, spaces and all', () => {
+    // One split on the first space, not on every space: the credential is whatever
+    // follows the scheme, and silently truncating it at the next space would reject
+    // a perfectly valid token.
+    const spaced = configWith({ token: 'two words' });
+
+    expect(allow({ host, authorization: 'Bearer two words' }, spaced)).toBe(true);
+    expect(allow({ host, authorization: 'Bearer twowords' }, spaced)).toBe(false);
+  });
+
+  it('lets a client that sends no Host prove itself with the token', () => {
+    // Rebinding needs a browser to put the attacker's hostname in `Host`; a request
+    // with none cannot be that attack, and HTTP/1.0 clients still exist. It gets no
+    // free pass either — without the token it is refused like anything else.
+    expect(allow({ authorization: `Bearer ${TOKEN}` })).toBe(true);
+    expect(allow({})).toBe(false);
+  });
+
   it('lets everything through when auth is switched off', () => {
     const open = configWith({ enabled: false });
 
@@ -162,6 +191,20 @@ describe('callerOf', () => {
 
   it('gives a refused request no identity to spend', () => {
     expect(caller({ host, origin: 'https://evil.test' })).toBe(ANONYMOUS_CALLER);
+  });
+
+  it('gives a refused caller no identity, however it asks for one', () => {
+    // A request that was turned away must not earn its own budget by claiming an
+    // id: the fuse is for callers we let in, and minting buckets is what a runaway
+    // script would do if it could.
+    expect(caller({ host, origin: 'https://evil.test', clientId: 'evil' })).toBe(ANONYMOUS_CALLER);
+  });
+
+  it('does not invent an origin bucket for a decision that carries none', () => {
+    // `decideAccess` only says `via: 'origin'` when there is one, and this is what
+    // keeps that true: the alternative is every such caller sharing one bucket
+    // literally named `origin:undefined`.
+    expect(callerOf({ host }, { allowed: true, via: 'origin' })).toBe(ANONYMOUS_CALLER);
   });
 
   it('lumps everyone together when auth is off', () => {

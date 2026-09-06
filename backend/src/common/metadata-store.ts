@@ -73,6 +73,8 @@ export class MemoryMetadataStore implements MetadataStore {
   }
 
   // Nothing to release: the map dies with the process.
+  // Stryker disable next-line all: an async function that returns nothing and one
+  // that returns undefined are the same promise. There is nothing here to observe.
   async close(): Promise<void> {
     return undefined;
   }
@@ -244,7 +246,7 @@ const openDatabase = (Database: DatabaseConstructor, file: string): Promise<Sqli
   });
 
 /** The synchronous shape `node:sqlite` offers, which is the whole of what is used. */
-interface NodeSqliteDatabase {
+export interface NodeSqliteDatabase {
   prepare(sql: string): {
     run(...params: unknown[]): unknown;
     all(...params: unknown[]): unknown[];
@@ -260,7 +262,7 @@ interface NodeSqliteDatabase {
  * compiled on the user's machine — the one thing standing between this backend
  * and a single-file build.
  */
-const adaptNodeSqlite = (db: NodeSqliteDatabase): SqliteDatabase => ({
+export const adaptNodeSqlite = (db: NodeSqliteDatabase): SqliteDatabase => ({
   run(sql, params, callback) {
     try {
       db.prepare(sql).run(...params);

@@ -141,6 +141,10 @@ const withLocalRules = async (
   entries: readonly Dirent[],
   inherited: readonly IgnoreLayer[],
 ): Promise<readonly IgnoreLayer[]> => {
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: widening this
+  // test only costs a failed `open` per directory — the read throws and the catch
+  // below returns the inherited layers, which is what the shortcut returns anyway.
+  // Narrowing it does change the answer, and the mutant that does is killed.
   if (!entries.some((entry) => entry.name === GITIGNORE && entry.isFile())) return inherited;
 
   try {
@@ -169,9 +173,7 @@ const isIgnored = (
 ): boolean => {
   const candidate = isDirectory ? `${relativePath}/` : relativePath;
 
-  for (let index = layers.length - 1; index >= 0; index -= 1) {
-    const layer = layers[index];
-    if (layer === undefined) continue;
+  for (const layer of layers.toReversed()) {
     const within = layer.base === '' ? candidate : candidate.slice(layer.base.length + 1);
     const { ignored, unignored } = layer.rules.test(within);
     if (ignored) return true;
@@ -215,6 +217,9 @@ const measure = async (
   try {
     const { size, mtimeMs } = await stat(absolutePath);
     return size > 0 && size <= maxFileBytes ? { size, mtimeMs } : undefined;
+    // Stryker disable next-line all: an empty catch returns undefined too, so the
+    // mutant is this function. The `stat` can genuinely fail — a file deleted
+    // between `readdir` and here — and the walk must carry on past it either way.
   } catch {
     return undefined;
   }
@@ -234,6 +239,12 @@ type Verdict =
   | { action: 'descend'; absolutePath: string }
   | { action: 'consider'; absolutePath: string; relativePath: string };
 
+// Stryker disable next-line all: the walk asks whether the action is `descend` or
+// `consider` and does nothing otherwise, so every other value of `action` — and an
+// object without one — skips just the same. There is no test that could tell them
+// apart, because there is no behaviour to tell apart.
+const SKIP: Verdict = { action: 'skip' };
+
 /**
  * Decides what to do with one directory entry. Symlinks are skipped outright:
  * following them risks both cycles and escaping the directory the user authorised.
@@ -249,7 +260,7 @@ const classify = (
   // can tell this line apart. It stays because relying on that is a trap: the day
   // an entry arrives from `stat` instead of `lstat`, this is the line that stops
   // a link to ~/.ssh being walked.
-  if (entry.isSymbolicLink()) return { action: 'skip' };
+  if (entry.isSymbolicLink()) return SKIP;
 
   const absolutePath = join(directory, entry.name);
   const relativePath = toPosix(relative(root, absolutePath));
@@ -257,17 +268,17 @@ const classify = (
   // from the queue below, which is seeded with `root` and grown with paths joined
   // onto it — so `relative` cannot produce `''` or escape upwards. It is the
   // assertion that keeps that invariant true if the queue ever gains another source.
-  if (relativePath === '' || relativePath.startsWith('..')) return { action: 'skip' };
+  if (relativePath === '' || relativePath.startsWith('..')) return SKIP;
 
   if (entry.isDirectory()) {
     return shouldEnterDirectory(entry, relativePath, classifier)
       ? { action: 'descend', absolutePath }
-      : { action: 'skip' };
+      : SKIP;
   }
 
   return entry.isFile() && shouldConsiderFile(entry, relativePath, classifier)
     ? { action: 'consider', absolutePath, relativePath }
-    : { action: 'skip' };
+    : SKIP;
 };
 
 /** A directory still to walk, with the `.gitignore` layers it inherits. */

@@ -64,10 +64,20 @@ export const tokenMatches = (presented: string, expected: string): boolean => {
 const bearerOf = (authorization: string | undefined): string | undefined => {
   if (authorization === undefined) return undefined;
   const [scheme, ...rest] = authorization.split(' ');
-  return scheme?.toLowerCase() === 'bearer' && rest.length > 0 ? rest.join(' ') : undefined;
+  // Everything after the first space, so a token containing one survives the parse.
+  // Empty means no credential was presented — `Bearer` alone and `Bearer ` both
+  // land here, and neither may come out as the empty string.
+  const credential = rest.join(' ');
+  // Stryker disable next-line OptionalChaining: `split` always yields at least one
+  // element, so `scheme` is never actually undefined — the `?.` is here only
+  // because `noUncheckedIndexedAccess` has no way to know that.
+  return scheme?.toLowerCase() === 'bearer' && credential !== '' ? credential : undefined;
 };
 
 /** A caller with no identity of its own; every such request shares one budget. */
+// Stryker disable next-line StringLiteral: this is a bucket key and a log label,
+// never compared against anything outside this module — any string distinct from
+// the others behaves identically, so no test can pin the spelling.
 export const ANONYMOUS_CALLER = 'anonymous';
 
 /**
