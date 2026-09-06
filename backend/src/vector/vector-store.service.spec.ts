@@ -19,13 +19,20 @@ const chunk = {
 
 describe('createVectorStore', () => {
   it('uses the in-memory store when Chroma is disabled, without probing the network', async () => {
+    const reasons: string[] = [];
+
     const store = await selectVectorStore(
       await testPlugins(),
       testConfig(),
       await createEmbeddings(await testPlugins(), testConfig()),
+      (reason: string) => reasons.push(reason),
     );
 
     expect(store.kind).toBe('memory');
+    // The second half of the title, and the half that was going unchecked: reaching
+    // memory by way of a failed Chroma probe looks identical from the outside, and
+    // costs a connection attempt on every start.
+    expect(reasons).toEqual([]);
   });
 
   it('uses the kind VECTOR_STORE names, so a plugin store is selectable', async () => {
@@ -67,7 +74,22 @@ describe('createVectorStore', () => {
     );
 
     expect(store.kind).toBe('memory');
+    // Named, because "something went wrong" is what a user reads when the store
+    // they configured is quietly not the one they got.
     expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toMatch(/connect to chromadb/i);
+  });
+
+  it('falls back without a listener, because nobody has to be watching', async () => {
+    const config = testConfig();
+
+    const store = await selectVectorStore(
+      await testPlugins(),
+      { ...config, chroma: { ...config.chroma, enabled: true, url: 'http://127.0.0.1:1' } },
+      await createEmbeddings(await testPlugins(), config),
+    );
+
+    expect(store.kind).toBe('memory');
   });
 });
 

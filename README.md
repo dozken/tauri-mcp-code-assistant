@@ -639,7 +639,11 @@ Updates are verified against a public key baked into the bundle and signed with 
 key that must not be in the repository — so this is the one feature that cannot be
 committed on your behalf. Everything else already is: `tauri-plugin-updater` is compiled
 in and registers itself only when `plugins.updater` is present, so a build without it is
-untouched.
+untouched — including the check. The window asks once at launch, and when there is
+something to install the sidebar offers it by version, with one button that downloads,
+installs and restarts. A failed install says why rather than leaving a button that did
+nothing; a failed _check_ says nothing at all, because it is background work nobody asked
+for.
 
 ```bash
 npm run updater:enable

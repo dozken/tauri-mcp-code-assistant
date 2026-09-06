@@ -26,6 +26,8 @@ declare module '../plugins/context.js' {
  * plugin could not make.
  */
 export const embeddingsPlugin: Plugin = {
+  // Stryker disable next-line StringLiteral: a diagnostic label, compared against
+  // nothing. Any distinct string behaves identically.
   name: 'embeddings',
   apply: async (ctx) => {
     const registry: EmbeddingsRegistry = new ProviderRegistry('embeddings provider');

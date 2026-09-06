@@ -12,11 +12,13 @@ const pickFolder = vi.fn<() => Promise<string | null | undefined>>();
 const getAppInfo = vi.fn<() => Promise<unknown>>();
 const removeRoot = vi.fn<(path: string) => Promise<void>>();
 const cancelIndexing = vi.fn<() => Promise<{ cancelled: boolean }>>();
+const checkForUpdate = vi.fn<() => Promise<unknown>>();
 
 vi.mock('../api/tauri', () => ({
   pickFolder: () => pickFolder(),
   getAppInfo: () => getAppInfo(),
 }));
+vi.mock('../api/updates', () => ({ checkForUpdate: () => checkForUpdate() }));
 vi.mock('../api/http', () => ({
   removeRoot: (path: string) => removeRoot(path),
   cancelIndexing: () => cancelIndexing(),
@@ -61,6 +63,72 @@ describe('Sidebar', () => {
     getAppInfo.mockReset().mockResolvedValue(undefined);
     removeRoot.mockReset().mockResolvedValue(undefined);
     cancelIndexing.mockReset().mockResolvedValue({ cancelled: true });
+    checkForUpdate.mockReset().mockResolvedValue(undefined);
+  });
+
+  describe('an available update', () => {
+    it('says nothing when there is nothing to install', async () => {
+      renderSidebar();
+
+      await waitFor(() => {
+        expect(getAppInfo).toHaveBeenCalled();
+      });
+      expect(screen.queryByRole('button', { name: /install and restart/i })).toBeNull();
+    });
+
+    it('offers the version it found', async () => {
+      checkForUpdate.mockResolvedValue({ version: '0.2.0', install: vi.fn() });
+
+      renderSidebar();
+
+      expect(await screen.findByText(/version 0\.2\.0 is available/i)).toBeInTheDocument();
+    });
+
+    it('installs and restarts on request', async () => {
+      const install = vi.fn().mockResolvedValue(undefined);
+      checkForUpdate.mockResolvedValue({ version: '0.2.0', install });
+
+      renderSidebar();
+      await userEvent.click(await screen.findByRole('button', { name: /install and restart/i }));
+
+      expect(install).toHaveBeenCalledOnce();
+    });
+
+    it('shows the install in flight, so it cannot be started twice', async () => {
+      // Downloading a bundle takes as long as it takes, and a button that still
+      // looks pressable is an invitation to start a second one on top of the first.
+      let finish = (): void => undefined;
+      const install = vi.fn().mockReturnValue(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      checkForUpdate.mockResolvedValue({ version: '0.2.0', install });
+
+      renderSidebar();
+      await userEvent.click(await screen.findByRole('button', { name: /install and restart/i }));
+
+      expect(await screen.findByRole('button', { name: /installing/i })).toBeDisabled();
+
+      await act(async () => {
+        finish();
+      });
+    });
+
+    it('reports a failed install instead of leaving the button spinning', async () => {
+      // The app does not restart when this fails, so the user is left looking at a
+      // button that did nothing. Saying why is the whole difference.
+      const install = vi.fn().mockRejectedValue(new Error('signature mismatch'));
+      checkForUpdate.mockResolvedValue({ version: '0.2.0', install });
+
+      renderSidebar();
+      await userEvent.click(await screen.findByRole('button', { name: /install and restart/i }));
+
+      await waitFor(() => {
+        expect(useAppStore.getState().error).toMatch(/signature mismatch/);
+      });
+      expect(screen.getByRole('button', { name: /install and restart/i })).toBeEnabled();
+    });
   });
 
   it('explains the empty state instead of showing a blank list', () => {

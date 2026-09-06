@@ -154,6 +154,13 @@ fn register_updater(handle: &tauri::AppHandle) {
         // Not fatal: an app that cannot check for updates is still an app, and
         // refusing to start over it would be the worse failure.
         eprintln!("the updater is configured but did not load: {error}");
+        return;
+    }
+
+    // Restarting into the new version is half of applying an update, and on macOS
+    // and Linux nothing else does it.
+    if let Err(error) = handle.plugin(tauri_plugin_process::init()) {
+        eprintln!("the process plugin did not load, so no restart after an update: {error}");
     }
 }
 

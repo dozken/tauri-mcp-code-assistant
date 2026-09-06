@@ -3,7 +3,19 @@
  * (`npm run dev`) and inside the desktop shell.
  */
 
-const isTauri = (): boolean => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+/**
+ * Whether this bundle is running inside the desktop shell.
+ *
+ * Exported because `updates.ts` asks the same question, and two copies of a guard
+ * are two chances to answer it differently.
+ */
+// Stryker disable all: the `typeof` half guards a build target with no window at
+// all, which jsdom is not — under test `window` always exists, so removing it
+// changes nothing any test can see. A region rather than `next-line`, because the
+// mutants sit on the wrapped second line and `next-line` would reach the `export`.
+export const isTauri = (): boolean =>
+  typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+// Stryker restore all
 
 /**
  * Opens the OS folder picker. Returns `null` when the user cancels, and

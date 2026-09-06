@@ -30,6 +30,8 @@ const OLLAMA_DEFAULT_MODEL = 'qwen2.5-coder:7b';
  * out-of-repo package, not a pull request.
  */
 export const chatModelPlugin: Plugin = {
+  // Stryker disable next-line StringLiteral: a diagnostic label, compared against
+  // nothing. Any distinct string behaves identically.
   name: 'chat-models',
   apply: async (ctx) => {
     const registry: ChatModelRegistry = new ProviderRegistry('chat model');
@@ -37,6 +39,10 @@ export const chatModelPlugin: Plugin = {
     // From the injected config, not process.env: reading the environment inside a
     // provider makes the stub impossible to configure per test, which is how a
     // timing-dependent test came to pass locally and fail in CI.
+    // Stryker disable next-line ObjectLiteral: dropping the delay only changes how
+    // many milliseconds each token waits, and the sole way to observe that is to
+    // assert elapsed wall-clock time — the flakiest assertion there is. The delay
+    // itself is covered by `stub-chat-model.spec.ts`.
     registry.register(
       'stub',
       ({ config }) => new StubChatModel({ tokenDelayMs: config.llm.stubTokenDelayMs }),

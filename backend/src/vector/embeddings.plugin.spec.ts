@@ -39,6 +39,42 @@ describe('the embeddings registry', () => {
     expect(await embeddings.embedQuery('hello')).toHaveLength(96);
   });
 
+  it('names what exists, and what kind of thing is missing', async () => {
+    const config = configWith();
+
+    await expect((await registry()).create('nomic', { config })).rejects.toThrow(
+      /No plugin provides the embeddings provider "nomic"\. Available: hashing, ollama, openai/,
+    );
+  });
+
+  it('builds an OpenAI embedder with the settings it was given', async () => {
+    const base = configWith();
+
+    const embeddings = await (
+      await registry()
+    ).create('openai', {
+      config: {
+        ...base,
+        llm: { ...base.llm, apiKey: 'sk-test' },
+        embeddings: { ...base.embeddings, model: 'text-embedding-3-large', dimensions: 256 },
+      },
+    });
+
+    expect(embeddings).toMatchObject({ model: 'text-embedding-3-large', dimensions: 256 });
+  });
+
+  it('falls back to a small OpenAI embedding model when none is named', async () => {
+    const base = configWith();
+
+    const embeddings = await (
+      await registry()
+    ).create('openai', {
+      config: { ...base, llm: { ...base.llm, apiKey: 'sk-test' } },
+    });
+
+    expect(embeddings).toMatchObject({ model: 'text-embedding-3-small' });
+  });
+
   it('refuses OpenAI embeddings without a key rather than failing on first use', async () => {
     const base = configWith();
 

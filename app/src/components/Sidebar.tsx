@@ -23,6 +23,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { useAppStore } from '../store/appStore';
 import { cancelIndexing, removeRoot } from '../api/http';
 import { getAppInfo, pickFolder, type AppInfo } from '../api/tauri';
+import { checkForUpdate, type AvailableUpdate } from '../api/updates';
 import * as styles from './Sidebar.styles';
 
 export interface SidebarProps {
@@ -42,6 +43,8 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualPath, setManualPath] = useState('');
   const [appInfo, setAppInfo] = useState<AppInfo>();
+  const [update, setUpdate] = useState<AvailableUpdate>();
+  const [installing, setInstalling] = useState(false);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -50,6 +53,34 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
       .then(setAppInfo)
       .catch(() => undefined);
   }, []);
+
+  // Stryker disable ArrayDeclaration: React compares dependencies by identity, and
+  // the constant the mutant substitutes is the same value on every render — so the
+  // effect still runs exactly once and nothing can tell the two apart.
+  useEffect(() => {
+    // Once, at launch. Nothing to install resolves to undefined and shows nothing —
+    // including in a browser, and in a desktop build with no updater configured.
+    void checkForUpdate()
+      .then(setUpdate)
+      .catch(() => undefined);
+  }, []);
+  // Stryker restore ArrayDeclaration
+
+  const handleInstall = async (): Promise<void> => {
+    // Stryker disable next-line ConditionalExpression: unreachable — the button
+    // that calls this only renders when there is an update. It is here because
+    // `update.install()` below has to be narrowed, and it documents why.
+    if (!update) return;
+
+    setInstalling(true);
+    try {
+      // On success the app restarts, so there is deliberately nothing after this.
+      await update.install();
+    } catch (error) {
+      setInstalling(false);
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   const handleAdd = async (): Promise<void> => {
     const picked = await pickFolder();
@@ -216,6 +247,24 @@ export const Sidebar = ({ onIndexFolder, onRefresh }: SidebarProps) => {
           </ListItem>
         ))}
       </List>
+
+      {update ? (
+        <>
+          <Divider />
+          <Box sx={styles.updateBanner}>
+            <Typography variant="caption">Version {update.version} is available</Typography>
+            <Button
+              size="small"
+              disabled={installing}
+              onClick={() => {
+                void handleInstall();
+              }}
+            >
+              {installing ? 'Installing…' : 'Install and restart'}
+            </Button>
+          </Box>
+        </>
+      ) : null}
 
       {appInfo ? (
         <>

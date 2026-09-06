@@ -17,6 +17,16 @@ export const rootPath: SxProps<Theme> = { fontFamily: MONOSPACE, display: 'block
 export const staleChip: SxProps<Theme> = { ml: 1, height: 18 };
 export const footer: SxProps<Theme> = { px: 2, py: 1 };
 
+/** Sits above the build line, and only when there is something to install. */
+export const updateBanner: SxProps<Theme> = {
+  px: 2,
+  py: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 1,
+};
+
 /** The empty-state row's secondary line is one size down from a folder's. */
 export const emptyStateText = { secondary: { variant: 'caption' } } as const;
 

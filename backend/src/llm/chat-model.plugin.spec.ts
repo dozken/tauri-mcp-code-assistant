@@ -26,10 +26,34 @@ describe('chat model registry', () => {
     expect((await registry()).kinds).toEqual(['ollama', 'openai', 'stub']);
   });
 
-  it('names what exists when asked for something that does not', async () => {
+  it('names what exists, and what kind of thing is missing', async () => {
+    // Both halves matter in the error a misconfigured app dies with: which setting
+    // is wrong, and what it could have said instead.
     await expect((await registry()).create('gpt5', { config: configWith({}) })).rejects.toThrow(
-      /Available: ollama, openai, stub/,
+      /No plugin provides the chat model "gpt5"\. Available: ollama, openai, stub/,
     );
+  });
+
+  it('builds an OpenAI model with the settings it was given', async () => {
+    // Constructing the right class with none of the configuration is the failure
+    // this catches: the model answers, on the wrong model, without streaming.
+    const model = await (
+      await registry()
+    ).create('openai', {
+      config: configWith({ apiKey: 'sk-test', model: 'gpt-4o', temperature: 0.4 }),
+    });
+
+    expect(model).toMatchObject({ model: 'gpt-4o', temperature: 0.4, streaming: true });
+  });
+
+  it('falls back to a small OpenAI model when none is named', async () => {
+    const model = await (
+      await registry()
+    ).create('openai', {
+      config: configWith({ apiKey: 'sk-test', model: undefined }),
+    });
+
+    expect(model).toMatchObject({ model: 'gpt-4o-mini' });
   });
 
   it('refuses openai without a key, rather than failing on the first turn', async () => {
