@@ -388,7 +388,7 @@ export class IndexingService implements OnModuleInit, OnModuleDestroy {
     // Here rather than at the read above, so `contentHash` stays an address for
     // the file's actual bytes. What must never hold a credential is the index:
     // the store outlives the file, is copied around, and is what the agent quotes.
-    const redaction = redactSecrets(content);
+    const redaction = redactSecrets(content, { entropyScan: this.config.secrets.entropyScan });
     if (redaction.count > 0) {
       // Loud, and once per file that has any. A repository with credentials in it
       // is something the person running this wants to hear about — and the count

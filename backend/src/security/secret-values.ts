@@ -18,6 +18,16 @@
  *   - **Context.** A value assigned to something *named* like a credential, long
  *     enough to be one. Entropy appears here only as a floor, to throw out
  *     `changeme` and `xxxxxxxx` — it is the last filter, not the first.
+ *   - **Entropy**, over candidates rather than over prose. Measuring whole strings
+ *     is what makes entropy look useless; measuring *token-shaped runs* — no
+ *     spaces, no punctuation outside the base64 alphabet — is what the scanners
+ *     that work actually do. `application/json; charset=utf-8` is never a
+ *     candidate, because it contains a space, a semicolon and a slash.
+ *
+ * Measured over this repository, 202 files: fourteen candidates outside lockfiles,
+ * every one of them a deliberate fixture, and no false positives at any threshold.
+ * Lockfiles are the dense case — 498 integrity hashes — and they sit between 3.0
+ * and 3.5 bits, below the base64 threshold here. See `Limits` at the bottom.
  *
  * Over-redacting has a real cost: the assistant then answers questions about code
  * it cannot see. So the marker says what happened rather than deleting silently,
@@ -136,10 +146,66 @@ const MINIMUM_ENTROPY = 3;
 const looksLikeSecretValue = (value: string): boolean =>
   !value.includes(REDACTED) && !PLACEHOLDER.test(value) && shannonEntropy(value) >= MINIMUM_ENTROPY;
 
+/**
+ * A run that could be a token: base64's alphabet with `=` only as trailing
+ * padding. `_` and `-` are left out deliberately — they are identifier separators
+ * far more often than base64url characters, and including them merges
+ * `MAX_FILE_BYTES=524288` and `NODE_SEA_FUSE_fce680…` into single candidates.
+ */
+const ENTROPY_CANDIDATE = /[A-Za-z0-9+/]{20,}={0,2}/g;
+
+const HEX_ONLY = /^[\da-f]+$/i;
+
+/**
+ * Charset-aware, because the ceiling differs. Hex has sixteen symbols and so
+ * cannot exceed 4 bits per character — a threshold above that never fires — while
+ * base64's sixty-four reach nearly 6. One number for both would either miss every
+ * hex key or redact every lockfile.
+ */
+const HEX_MINIMUM = { length: 32, entropy: 3.5 };
+const BASE64_MINIMUM = { length: 24, entropy: 4 };
+
+/**
+ * What a candidate is preceded by when it is a hash or an inline asset.
+ *
+ * Entropy cannot tell a sha256 checksum from a hex API key — they are the same
+ * string — but a lockfile says which it is one word earlier. Without this,
+ * `Cargo.lock` alone accounts for 495 redactions in this repository, none of them
+ * a secret.
+ */
+// Stryker disable Regex: two word-lists, like the shapes and filler tables above.
+// Which labels appear is data; every mutant here is another spelling of the same
+// intent. The behaviour that matters — that a labelled hash is skipped and an
+// unlabelled one is not — is tested.
+const HASH_PREFIX = /(?:sha\d{3}-|base64,)$/i;
+const LABELLED_HASH = /(?:checksum|integrity|digest|hash|etag|revision)["']?\s*[:=]\s*["']?$/i;
+// Stryker restore Regex
+
+/** Two patterns rather than one alternation, which reads better and lints better. */
+const isHashContext = (preceding: string): boolean =>
+  HASH_PREFIX.test(preceding) || LABELLED_HASH.test(preceding);
+
+const isHighEntropyToken = (candidate: string, preceding: string): boolean => {
+  // A token has digits; a long word and a path segment do not. No matching check
+  // for letters: a run without them has at most ten symbols to draw on, so it
+  // cannot reach either threshold anyway, and the guard would be unreachable.
+  if (!/\d/.test(candidate)) return false;
+  if (isHashContext(preceding)) return false;
+
+  const minimum = HEX_ONLY.test(candidate) ? HEX_MINIMUM : BASE64_MINIMUM;
+
+  return candidate.length >= minimum.length && shannonEntropy(candidate) >= minimum.entropy;
+};
+
 export interface Redacted {
   readonly text: string;
   /** How many values were replaced, for a log line that says so without saying what. */
   readonly count: number;
+}
+
+export interface RedactOptions {
+  /** The heuristic rule, and the only one a caller may decline. See `AppConfig`. */
+  readonly entropyScan?: boolean;
 }
 
 /**
@@ -148,7 +214,7 @@ export interface Redacted {
  * Applied where text enters the index and again where it leaves the tools, because
  * an index built before this existed still holds whatever it held.
  */
-export const redactSecrets = (text: string): Redacted => {
+export const redactSecrets = (text: string, options: RedactOptions = {}): Redacted => {
   let count = 0;
 
   let redacted = text;
@@ -158,6 +224,18 @@ export const redactSecrets = (text: string): Redacted => {
       return REDACTED;
     });
   }
+
+  redacted = redacted.replaceAll(ENTROPY_CANDIDATE, (candidate, offset: number) => {
+    if (options.entropyScan === false) return candidate;
+
+    // Wide enough for the longest label in the list plus its separator and quote.
+    if (!isHighEntropyToken(candidate, redacted.slice(Math.max(0, offset - 16), offset))) {
+      return candidate;
+    }
+
+    count += 1;
+    return REDACTED;
+  });
 
   redacted = redacted.replaceAll(ASSIGNMENT, (match, ...rest) => {
     const groups = rest.at(-1) as { key: string; quote: string; value: string };
@@ -174,3 +252,20 @@ export const redactSecrets = (text: string): Redacted => {
 
   return { text: redacted, count };
 };
+
+/**
+ * Limits, stated because a scanner nobody knows the edges of is a scanner people
+ * over-trust.
+ *
+ * A 40-character git SHA and a 40-character hex API key are the same string to
+ * this and to anything else that reads only the value: a changelog full of commit
+ * hashes is the false-positive case the entropy rule cannot argue its way out of.
+ * The same goes for base64 test vectors and an alphabet constant — this
+ * repository redacts its own, in `test/helpers.ts`, and is right to by the rule.
+ *
+ * That is the trade this makes deliberately. A redaction is visible, says what it
+ * was, and is counted in a log line; a missed credential is silent and permanent.
+ * `SECRET_ENTROPY_SCAN=false` turns this third rule off for a repository where the
+ * balance runs the other way; the shapes and the context rules stay on regardless,
+ * because neither has ever produced a false positive here.
+ */

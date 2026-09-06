@@ -75,9 +75,12 @@ describe('redactSecrets, on credentials with a recognisable shape', () => {
 
 describe('redactSecrets, on values assigned to a credential-shaped name', () => {
   it.each([
-    ['an api key', 'const apiKey = "a3f5c9d21b8e4076af31cc90de5217b48fa0c6d9";'],
+    ['an api key', 'const apiKey = "a3f5c9d21b8e4076af31cc90";'],
     ['a yaml password', 'password: "wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLE"'],
-    ['a json client secret', '"client_secret": "8Kj2mNp4Qr7tVw9yZb3dF6hJ1lO5sX0a"'],
+    ['a json client secret', '"client_secret": "8b3c1d7e2f9a4c6b0d5e8f2a"'],
+    // Minified JSON has no space after the colon, and is exactly what a bundled
+    // config or a committed API response looks like.
+    ['a minified json secret', '{"api_key":"8b3c1d7e2f9a4c6b0d5e8f2a"}'],
     ['a shell-ish token', "export TOKEN='Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2Rl'"],
     // The commonest spelling of all, and the one that only matches once the
     // separator is stripped out of the name.
@@ -88,7 +91,7 @@ describe('redactSecrets, on values assigned to a credential-shaped name', () => 
   });
 
   it('counts an assignment it replaced, the same as a shape', () => {
-    const { count } = redactSecrets('const apiKey = "a3f5c9d21b8e4076af31cc90de5217b48fa0c6d9";');
+    const { count } = redactSecrets('const apiKey = "a3f5c9d21b8e4076af31cc90";');
 
     expect(count).toBe(1);
   });
@@ -103,9 +106,83 @@ describe('redactSecrets, on values assigned to a credential-shaped name', () => 
   });
 
   it('leaves the code around it intact, so the line still reads', () => {
-    const result = redact('const apiKey = "a3f5c9d21b8e4076af31cc90de5217b48fa0c6d9";');
+    // Short of the entropy rule's reach, so this is the context rule's own output.
+    const result = redact('const apiKey = "a3f5c9d21b8e4076af31cc90";');
 
     expect(result).toBe(`const apiKey = "${REDACTED}";`);
+  });
+});
+
+describe('redactSecrets, on high-entropy tokens with neither a shape nor a name', () => {
+  it('catches a token that neither other rule would', async () => {
+    // No vendor prefix and no credential-shaped name: invisible to both of the
+    // other rules, and the reason this one exists.
+    const token = shapedCredential('', 40);
+
+    expect(redactSecrets(`curl -H "X-Custom: ${token}" https://api.internal/v1`).count).toBe(1);
+  });
+
+  it('measures runs, not prose, which is what makes the threshold usable at all', () => {
+    // Whole-string entropy puts `application/json; charset=utf-8` above a real hex
+    // key. A candidate is a run with no space, no semicolon and no slash, so that
+    // header is never one — it is excluded before entropy is ever consulted.
+    expect(redactSecrets("const contentType = 'application/json; charset=utf-8';").count).toBe(0);
+  });
+
+  it.each([
+    ['a labelled lockfile checksum', `checksum = "${'9f2c'.repeat(16)}"`],
+    ['a subresource integrity hash', `integrity: "sha512-${shapedCredential('', 40)}"`],
+    ['an inline asset', `src="data:image/png;base64,${shapedCredential('', 60)}"`],
+    ['a run with no digits', "import { x } from './verylongdescriptivemodulename';"],
+    ['a run with no letters', 'const stamp = 1788703288464123456789012345;'],
+    ['a short run', `const id = "${shapedCredential('', 12)}";`],
+  ])('leaves %s alone', (_label, text) => {
+    expect(redactSecrets(text).count).toBe(0);
+  });
+
+  it.each([
+    // Sixteen symbols, each twice: entropy of exactly 4, on the base64 threshold.
+    ['a candidate sitting on the entropy threshold', '0123456789abcdez'.repeat(2), 1],
+    // Twenty-four distinct characters: over the entropy bar, exactly on the length one.
+    ['a candidate sitting on the length threshold', 'abcdefghijklmn0123456789'.slice(0, 24), 1],
+    ['one character short of the length threshold', 'abcdefghijklmn012345678'.slice(0, 23), 0],
+    ['a long candidate with too little variety', 'ab1'.repeat(12), 0],
+  ])('treats %s as %s', (_label, candidate, expected) => {
+    expect(redactSecrets(`sent ${candidate} onwards`).count).toBe(expected);
+  });
+
+  it('needs digits, so a long run of letters is left alone', () => {
+    // High entropy and long enough, and still not a token: mixed-case prose and
+    // concatenated identifiers reach 4 bits easily.
+    const letters = 'aBcDeFgHiJkLmNoPqRsTuVwXyZaBcDeFgH';
+
+    expect(shannonEntropy(letters)).toBeGreaterThan(4);
+    expect(redactSecrets(`value ${letters} here`).count).toBe(0);
+  });
+
+  it('reads the label even when it starts the text', () => {
+    // The window looked back is clamped at the start of the string; without that
+    // clamp a label in the first few characters is read from the wrong end.
+    expect(redactSecrets(`sha512-${shapedCredential('', 40)}`).count).toBe(0);
+  });
+
+  it('cannot tell a git SHA from a hex key, and redacts it', () => {
+    // Pinned rather than wished away: the two are the same forty characters, and
+    // nothing that reads only the value can separate them. A changelog of commit
+    // hashes is the cost of the rule, which is why the rule can be switched off.
+    const gitSha = 'a3f5c9d21b8e4076af31cc90de5217b48fa0c6d9';
+
+    expect(redactSecrets(`reverted in ${gitSha}`).count).toBe(1);
+    expect(redactSecrets(`reverted in ${gitSha}`, { entropyScan: false }).count).toBe(0);
+  });
+
+  it('leaves the deterministic rules on when the heuristic one is off', () => {
+    // The switch is for the heuristic only. A file named like a key, and a token
+    // shaped like one, are not judgement calls.
+    const options = { entropyScan: false };
+
+    expect(redactSecrets(shapedCredential('ghp_', 36), options).count).toBe(1);
+    expect(redactSecrets(`api_key = "${shapedCredential('', 32)}"`, options).count).toBe(1);
   });
 });
 
@@ -145,7 +222,7 @@ describe('redactSecrets, on things that only look like secrets', () => {
 
   it('does not redact its own marker on a second pass', () => {
     // Applied at index time and again on the way out, so it meets its own output.
-    const once = redact('const apiKey = "a3f5c9d21b8e4076af31cc90de5217b48fa0c6d9";');
+    const once = redact('const apiKey = "a3f5c9d21b8e4076af31cc90";');
 
     expect(redactSecrets(once)).toEqual({ text: once, count: 0 });
   });

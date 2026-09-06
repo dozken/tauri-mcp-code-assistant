@@ -40,6 +40,20 @@ export interface AppConfig {
   readonly ollama: {
     readonly baseUrl: string;
   };
+  readonly secrets: {
+    /**
+     * The entropy rule, which is the only heuristic one and the only one that can
+     * be switched off.
+     *
+     * The deny-list and the credential shapes are deterministic — a file named
+     * `id_rsa` is never not a key — and stay on for the reason written in
+     * `secret-files.ts`: a deny-list with an off switch is one that ends up
+     * switched off. Entropy is different in kind. It cannot tell a git SHA from a
+     * hex API key, and a repository where that costs more than it saves should be
+     * able to say so.
+     */
+    readonly entropyScan: boolean;
+  };
   readonly llm: {
     /**
      * A registry kind, not a fixed union: `stub` and `openai` ship with the app,
@@ -176,6 +190,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
       model: text(env.EMBEDDINGS_MODEL),
     },
     ollama: { baseUrl: text(env.OLLAMA_BASE_URL) ?? 'http://127.0.0.1:11434' },
+    secrets: { entropyScan: bool(env.SECRET_ENTROPY_SCAN, true) },
     llm: {
       provider: text(env.LLM_PROVIDER) ?? (apiKey ? 'openai' : 'stub'),
       model: text(env.LLM_MODEL),

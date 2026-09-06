@@ -98,7 +98,7 @@ export class CodeToolsService {
           // Again on the way out, for the same reason the path filter is: an index
           // built before this existed still holds whatever it held, and re-indexing
           // is the user's choice rather than ours.
-          text: redactSecrets(match.text).text,
+          text: redactSecrets(match.text, { entropyScan: this.config.secrets.entropyScan }).text,
         })),
     };
   }
