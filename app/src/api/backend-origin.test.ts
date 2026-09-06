@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  browserPolicy,
   connectSources,
-  contentSecurityPolicy,
+  desktopPolicy,
   DEFAULT_BACKEND_URL,
-  TAURI_IPC_SOURCES,
 } from './backend-origin';
-import { BACKEND_URL } from './config';
+import { backendUrl, resolveBackendUrl } from './config';
 
 describe('connectSources', () => {
   it('allows the backend over HTTP and the same host over WebSocket', () => {
@@ -39,9 +39,9 @@ describe('connectSources', () => {
   });
 });
 
-describe('contentSecurityPolicy', () => {
+describe('browserPolicy', () => {
   it('names the configured backend and nothing else', () => {
-    const csp = contentSecurityPolicy('http://127.0.0.1:4000');
+    const csp = browserPolicy('http://127.0.0.1:4000');
 
     expect(csp).toContain("connect-src 'self' http://127.0.0.1:4000 ws://127.0.0.1:4000");
     // The old policy hard-coded 3001; a header that still allows it after the URL
@@ -49,13 +49,12 @@ describe('contentSecurityPolicy', () => {
     expect(csp).not.toContain('3001');
   });
 
-  it('includes the Tauri IPC origins only when asked for them', () => {
-    expect(contentSecurityPolicy(DEFAULT_BACKEND_URL, TAURI_IPC_SOURCES)).toContain('ipc:');
-    expect(contentSecurityPolicy(DEFAULT_BACKEND_URL)).not.toContain('ipc:');
+  it('does not offer a browser the IPC origins it has no way to use', () => {
+    expect(browserPolicy(DEFAULT_BACKEND_URL)).not.toContain('ipc:');
   });
 
   it('keeps the directives the app actually needs', () => {
-    const csp = contentSecurityPolicy(DEFAULT_BACKEND_URL);
+    const csp = browserPolicy(DEFAULT_BACKEND_URL);
 
     // Emotion writes real <style> elements at runtime, so MUI cannot render at all
     // without `unsafe-inline`, and data: URIs are how the icons arrive.
@@ -65,10 +64,37 @@ describe('contentSecurityPolicy', () => {
   });
 });
 
-describe('BACKEND_URL', () => {
-  it('is the default when nothing overrides it', () => {
+describe('desktopPolicy', () => {
+  it('allows loopback on any port, because the shell picks one at launch', () => {
+    const csp = desktopPolicy();
+
+    expect(csp).toContain('http://127.0.0.1:*');
+    expect(csp).toContain('ws://127.0.0.1:*');
+  });
+
+  it('allows the IPC origins a Tauri window needs to reach its own shell', () => {
+    expect(desktopPolicy()).toContain('ipc:');
+    expect(desktopPolicy()).toContain('http://ipc.localhost');
+  });
+
+  it('is still confined to loopback', () => {
+    // A wildcard port is not a wildcard host. Anything else on the machine, and
+    // anything off it, is still refused.
+    expect(desktopPolicy()).not.toContain('*://');
+    expect(desktopPolicy()).not.toContain('localhost:*');
+  });
+});
+
+describe('backendUrl', () => {
+  it('is the configured default before anything asks the shell', () => {
     // The tests run without VITE_BACKEND_URL, so this also proves the fallback is
     // the same constant the CSP is generated from.
-    expect(BACKEND_URL).toBe(DEFAULT_BACKEND_URL);
+    expect(backendUrl()).toBe(DEFAULT_BACKEND_URL);
+  });
+
+  it('stays the configured default in a browser, which has no shell to ask', async () => {
+    await resolveBackendUrl();
+
+    expect(backendUrl()).toBe(DEFAULT_BACKEND_URL);
   });
 });

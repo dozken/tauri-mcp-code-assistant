@@ -8,7 +8,7 @@ import {
   type IndexStatus,
 } from '@ai-code-companion/contracts';
 import type { ZodType } from 'zod';
-import { BACKEND_URL } from './config';
+import { backendUrl } from './config';
 
 export class HttpError extends Error {
   constructor(
@@ -38,7 +38,7 @@ const request = async <T>(
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
 
-  const response = await fetch(`${BACKEND_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${backendUrl()}${path}`, { ...init, headers });
 
   if (!response.ok) {
     // Nest returns `{ statusCode, message }`; surface that instead of "500".

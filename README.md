@@ -582,11 +582,24 @@ unsigned bundle rather than a failed release.
 
 Generate the updater key with `npm run tauri -w app -- signer generate -w ~/.tauri/companion.key`.
 
-> **The bundle is the UI shell.** It expects the backend on `127.0.0.1:3001` and does not
-> start one; `COMPANION_BACKEND_URL` points the window somewhere else. Shipping the backend
-> as a Tauri sidecar is the obvious next step and is not done: `sqlite3` is a native module,
-> and a single-file Node build that keeps it working is a piece of work in its own right
-> rather than a flag.
+### The bundle carries its own backend
+
+`npm run package -w @ai-code-companion/backend` builds the backend into one executable:
+esbuild flattens it and its dependencies into a single CommonJS file, Node's own SEA
+support turns that into a blob, and `postject` writes the blob into a copy of `node`.
+Nothing to install on the user's machine, and nothing to compile — the metadata store
+uses `node:sqlite` precisely so this step has no native module to worry about. It is
+~130 MB, which is the Node runtime.
+
+The desktop shell starts it on launch on a port it picks (a fixed one is the port a
+developer already has something on), points the window at it, and stops it on quit. The
+backend also exits when its stdin closes, so a crash or a `kill -9` does not leave a
+process holding a port with no window to show for it — verified by killing the packaged
+app and watching the backend go with it.
+
+`COMPANION_BACKEND_URL` points the window at a backend you are already running, and skips
+the sidecar entirely. A development build never spawns one, so `npm run dev:tauri` works
+exactly as it did.
 
 ## Plugins
 

@@ -243,20 +243,83 @@ const openDatabase = (Database: DatabaseConstructor, file: string): Promise<Sqli
     });
   });
 
+/** The synchronous shape `node:sqlite` offers, which is the whole of what is used. */
+interface NodeSqliteDatabase {
+  prepare(sql: string): {
+    run(...params: unknown[]): unknown;
+    all(...params: unknown[]): unknown[];
+  };
+  close(): void;
+}
+
+/**
+ * `node:sqlite` behind the same three methods the callback driver offers.
+ *
+ * Synchronous underneath, which is fine here: every call is a single statement
+ * against a local file, and the alternative is a native module that has to be
+ * compiled on the user's machine — the one thing standing between this backend
+ * and a single-file build.
+ */
+const adaptNodeSqlite = (db: NodeSqliteDatabase): SqliteDatabase => ({
+  run(sql, params, callback) {
+    try {
+      db.prepare(sql).run(...params);
+      callback(null);
+    } catch (error) {
+      callback(error instanceof Error ? error : new Error(String(error)));
+    }
+  },
+  all(sql, params, callback) {
+    try {
+      callback(null, db.prepare(sql).all(...params));
+    } catch (error) {
+      callback(error instanceof Error ? error : new Error(String(error)), []);
+    }
+  },
+  close(callback) {
+    try {
+      db.close();
+      callback(null);
+    } catch (error) {
+      callback(error instanceof Error ? error : new Error(String(error)));
+    }
+  },
+});
+
+/** Node's own SQLite, when this runtime has it. Present and unflagged from Node 22.5. */
+const openBuiltIn = async (filename: string): Promise<SqliteDatabase> => {
+  const { DatabaseSync } = (await import('node:sqlite')) as unknown as {
+    DatabaseSync: new (path: string) => NodeSqliteDatabase;
+  };
+
+  return adaptNodeSqlite(new DatabaseSync(filename));
+};
+
+const openDriver = async (filename: string): Promise<SqliteDatabase> => {
+  const imported = (await import('sqlite3')) as unknown as {
+    default?: { Database: DatabaseConstructor };
+    Database?: DatabaseConstructor;
+  };
+  const Database = imported.default?.Database ?? imported.Database;
+  if (!Database) throw new Error('sqlite3 module did not export a Database constructor');
+
+  return openDatabase(Database, filename);
+};
+
+/**
+ * Node's built-in SQLite first, the native `sqlite3` package second, and an
+ * in-memory store if neither works — which costs only the list of indexed folders
+ * across restarts, and is better than refusing to start.
+ */
 export const createMetadataStore = async (
   filename: string,
   onFallback?: (reason: string) => void,
 ): Promise<MetadataStore> => {
   try {
     await mkdir(dirname(filename), { recursive: true });
-    const imported = (await import('sqlite3')) as unknown as {
-      default?: { Database: DatabaseConstructor };
-      Database?: DatabaseConstructor;
-    };
-    const Database = imported.default?.Database ?? imported.Database;
-    if (!Database) throw new Error('sqlite3 module did not export a Database constructor');
 
-    const store = new SqliteMetadataStore(await openDatabase(Database, filename));
+    const database = await openBuiltIn(filename).catch(() => openDriver(filename));
+    const store = new SqliteMetadataStore(database);
     await store.migrate();
     return store;
   } catch (error) {

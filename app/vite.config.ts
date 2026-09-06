@@ -2,30 +2,28 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react-swc';
-import {
-  contentSecurityPolicy,
-  connectSources,
-  DEFAULT_BACKEND_URL,
-  TAURI_IPC_SOURCES,
-} from './src/api/backend-origin';
+import { browserPolicy, desktopPolicy, DEFAULT_BACKEND_URL } from './src/api/backend-origin';
 
 const TAURI_CONFIG = fileURLToPath(new URL('src-tauri/tauri.conf.json', import.meta.url));
 
 /** The token `index.html` carries where the header belongs. */
 const CSP_PLACEHOLDER = '%CSP%';
 
+/** Set by the Tauri CLI for every build it drives, and by nothing else. */
+const isDesktopBuild = (): boolean => process.env.TAURI_ENV_PLATFORM !== undefined;
+
 /**
- * Writes the CSP into `index.html` from the same backend URL the app connects to,
- * and refuses to build when the Tauri window's own CSP would not allow it.
+ * Writes the CSP into `index.html`, and refuses to build when the desktop
+ * window's own policy disagrees with it.
  *
- * The desktop shell takes its CSP from `tauri.conf.json`, which is static JSON
- * with nowhere to read an environment variable — so the best that can be done for
- * it is to notice the disagreement at build time and say exactly what to paste.
- * Silently shipping a window that blocks every request is the outcome worth
- * spending a build failure to avoid.
+ * Both policies are enforced in a Tauri window — the `<meta>` tag from this build
+ * and `app.security.csp` from `tauri.conf.json` — and a connection has to satisfy
+ * the intersection. Keeping them the same string is the only way to be sure the
+ * intersection is not empty. A packaged window with a perfectly good backend and
+ * not one socket to it is what taught us that.
  */
 const backendCsp = (): Plugin => {
-  let backendUrl = DEFAULT_BACKEND_URL;
+  let csp = browserPolicy(DEFAULT_BACKEND_URL);
 
   return {
     name: 'backend-csp',
@@ -34,31 +32,32 @@ const backendCsp = (): Plugin => {
     configResolved(config) {
       const env = config.env as Record<string, string | undefined>;
       const configured = env.VITE_BACKEND_URL?.trim();
-      backendUrl = configured === undefined || configured === '' ? DEFAULT_BACKEND_URL : configured;
+      const backendUrl =
+        configured === undefined || configured === '' ? DEFAULT_BACKEND_URL : configured;
+
+      // A desktop build's backend is started by the shell on a port chosen at
+      // launch, so `VITE_BACKEND_URL` has nothing to say about it.
+      csp = isDesktopBuild() ? desktopPolicy() : browserPolicy(backendUrl);
       // Here rather than in the HTML hook, so a mismatch stops the build at once
       // instead of once a page happens to be rendered.
-      assertTauriCspAllows(backendUrl);
+      assertTauriCspMatches();
     },
     transformIndexHtml: {
       order: 'pre',
-      handler: (html) =>
-        html.replaceAll(CSP_PLACEHOLDER, contentSecurityPolicy(backendUrl, TAURI_IPC_SOURCES)),
+      handler: (html) => html.replaceAll(CSP_PLACEHOLDER, csp),
     },
   };
 };
 
-const assertTauriCspAllows = (backendUrl: string): void => {
+const assertTauriCspMatches = (): void => {
   const { app } = JSON.parse(readFileSync(TAURI_CONFIG, 'utf8')) as {
     app?: { security?: { csp?: string } };
   };
-  const csp = app?.security?.csp ?? '';
-  const missing = connectSources(backendUrl).filter((source) => !csp.includes(source));
-  if (missing.length === 0) return;
+  if (app?.security?.csp === desktopPolicy()) return;
 
   throw new Error(
-    `VITE_BACKEND_URL is ${backendUrl}, which app/src-tauri/tauri.conf.json does not allow ` +
-      `(missing ${missing.join(', ')}). The desktop window would block every request. Set ` +
-      `app.security.csp there to:\n\n  ${contentSecurityPolicy(backendUrl, TAURI_IPC_SOURCES)}\n`,
+    'app/src-tauri/tauri.conf.json no longer carries the policy this build writes into ' +
+      `index.html. Both are enforced in the desktop window, so set app.security.csp to:\n\n  ${desktopPolicy()}\n`,
   );
 };
 

@@ -5,6 +5,8 @@ node_modules/
 dist/
 app/dist/
 backend/dist/
+# The packaged sidecar: a 126 MB executable, rebuilt by `npm run package`.
+backend/dist-bin/
 app/src-tauri/target/
 app/src-tauri/gen/
 

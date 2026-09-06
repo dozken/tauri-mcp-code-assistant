@@ -27,6 +27,8 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      // The packaged sidecar: a bundle of every dependency, and not ours to lint.
+      '**/dist-bin/**',
       '**/coverage/**',
       '**/reports/**',
       '**/node_modules/**',

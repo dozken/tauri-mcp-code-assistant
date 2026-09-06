@@ -13,12 +13,16 @@
         // The plugin-authoring surface. Its consumers are out-of-repo packages, so
         // "nothing here imports it" is what a working extension point looks like.
         "src/**/*.plugin.ts",
+        // Build scripts: run by npm, imported by nothing.
+        "scripts/**/*.mjs",
       ],
       // Referenced by stryker.config.json, which Knip does not read.
       "ignore": ["vitest.mutation.config.ts"],
-      "project": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.mjs", "*.config.ts"],
       // Loaded by pino as a worker target string, so no import exists to find.
-      "ignoreDependencies": ["pino-pretty"],
+      // `postject` is a CLI the packaging script runs by resolved path, for the
+      // same reason: there is no import to see.
+      "ignoreDependencies": ["pino-pretty", "postject"],
       // Same reasoning as the contracts barrel: a plugin file's exports are the
       // API an out-of-repo plugin compiles against, so "unused here" is expected.
       "includeEntryExports": false,

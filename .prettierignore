@@ -1,4 +1,5 @@
 dist/
+dist-bin/
 coverage/
 reports/
 node_modules/

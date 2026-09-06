@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import { BACKEND_URL } from './config';
+import { backendUrl } from './config';
 
 let socket: Socket | undefined;
 
@@ -8,7 +8,7 @@ let socket: Socket | undefined;
  * from a unit test does not open a socket.
  */
 export const getSocket = (): Socket => {
-  socket ??= io(BACKEND_URL, {
+  socket ??= io(backendUrl(), {
     transports: ['websocket'],
     autoConnect: true,
     reconnectionDelay: 500,

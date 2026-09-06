@@ -1,7 +1,17 @@
+import { isSea } from 'node:sea';
 import pino, { type LoggerOptions } from 'pino';
 import type { Params } from 'nestjs-pino';
 
-const isProduction = (): boolean => process.env.NODE_ENV === 'production';
+/**
+ * Plain JSON logs, no pretty transport.
+ *
+ * `pino-pretty` is a *transport target*: pino spawns a worker and loads it by
+ * module path. A single-file build has no module paths, so asking for it does not
+ * degrade to plain output — it throws while the logger is being constructed and
+ * takes the process down before it has served a single request. So a packaged
+ * build counts as production whether or not anyone set `NODE_ENV`.
+ */
+const isProduction = (): boolean => process.env.NODE_ENV === 'production' || isSea();
 
 const basePinoOptions = (name: string): LoggerOptions => ({
   name,

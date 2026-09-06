@@ -78,6 +78,11 @@ jobs:
             libayatana-appindicator3-dev libsoup-3.0-dev
       - run: npm ci
 
+      # The sidecar embeds the Node runtime of the machine that builds it, so it
+      # is built on each runner rather than once and copied.
+      - name: Package the backend as a sidecar
+        run: npm run package --workspace @ai-code-companion/backend
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -103,6 +108,6 @@ jobs:
           releaseDraft: true
           prerelease: false
           releaseBody: |
-            The desktop bundle is the UI shell. It expects the backend on
-            `127.0.0.1:3001` — see the README for running it, or set
-            `COMPANION_BACKEND_URL` to point the window elsewhere.
+            The bundle carries its own backend and starts it on launch — nothing
+            to install, no Node on the machine. Point the window at a backend you
+            are already running with `COMPANION_BACKEND_URL`.

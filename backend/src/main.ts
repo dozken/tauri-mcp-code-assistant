@@ -21,6 +21,31 @@ const publishToken = async (config: AppConfig): Promise<void> => {
   await chmod(config.auth.tokenFile, 0o600);
 };
 
+/**
+ * Shuts down when the process that started us goes away.
+ *
+ * The desktop shell stops this on a clean quit, but a crash or a `kill` never
+ * runs that code — and an orphaned backend holds a port and a database with no
+ * window to show for it. Watching stdin is the portable way to notice: the shell
+ * gives the child a pipe, and the pipe ends when the shell does.
+ *
+ * Opt-in, because a backend run from a terminal must not exit the moment its
+ * input happens to be `/dev/null`.
+ */
+const exitWithParent = (app: { close: () => Promise<void> }): void => {
+  if (process.env.COMPANION_EXIT_WITH_PARENT !== '1') return;
+
+  const stop = (): void => {
+    void app.close().finally(() => {
+      process.exit(0);
+    });
+  };
+
+  process.stdin.on('end', stop);
+  process.stdin.on('close', stop);
+  process.stdin.resume();
+};
+
 const bootstrap = async (): Promise<void> => {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get<AppConfig>(APP_CONFIG);
@@ -45,6 +70,8 @@ const bootstrap = async (): Promise<void> => {
   } else {
     logger.warn('AUTH_ENABLED=false: any local process can reach this API.');
   }
+
+  exitWithParent(app);
 
   // Loopback by default: this is a desktop companion, not a shared service, and the
   // /index endpoint reads local files.

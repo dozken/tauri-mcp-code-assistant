@@ -25,17 +25,33 @@ export const connectSources = (backendUrl: string): string[] => {
  * `ipc:` and `http://ipc.localhost` are how a Tauri webview reaches the Rust side;
  * a browser build has no such thing and must not be told to allow it.
  */
-export const TAURI_IPC_SOURCES: readonly string[] = ['ipc:', 'http://ipc.localhost'];
+const TAURI_IPC_SOURCES = ['ipc:', 'http://ipc.localhost'];
 
-export const contentSecurityPolicy = (
-  backendUrl: string,
-  extraConnectSources: readonly string[] = [],
-): string =>
+/**
+ * The desktop window's backend is on a port chosen at launch — a fixed one is the
+ * port a developer already has something on — so its policy cannot name the port.
+ * Still confined to loopback, which is the part that matters.
+ */
+const LOOPBACK_CONNECT_SOURCES = ['http://127.0.0.1:*', 'ws://127.0.0.1:*'];
+
+const policy = (connect: readonly string[]): string =>
   [
     "default-src 'self'",
-    `connect-src 'self' ${[...extraConnectSources, ...connectSources(backendUrl)].join(' ')}`,
+    `connect-src 'self' ${connect.join(' ')}`,
     // MUI's emotion writes real <style> elements at runtime; there is no build
     // step that could hash them.
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
   ].join('; ');
+
+/** For a build served in a browser, where the backend URL is known at build time. */
+export const browserPolicy = (backendUrl: string): string => policy(connectSources(backendUrl));
+
+/**
+ * For the desktop build. Written into `index.html` *and* `tauri.conf.json`,
+ * because both policies are enforced and a connection has to satisfy the
+ * intersection — the failure that taught us this was a packaged window with a
+ * perfectly good backend and not a single socket to it.
+ */
+export const desktopPolicy = (): string =>
+  policy([...TAURI_IPC_SOURCES, ...LOOPBACK_CONNECT_SOURCES]);
