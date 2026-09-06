@@ -82,6 +82,14 @@ The region form (`// Stryker disable X` … `// Stryker restore X`) around the w
 statement works. Also: with a wrapped comment, put the directive on its **last** line,
 because each `//` line is its own comment node.
 
+One trap that is not Stryker's fault at all: **the test runner's module interop is not
+Node's.** `await import('sqlite3')` hands Node `{ default }` and nothing else, while
+vite-node helpfully adds the named exports on top of it. So `imported.default?.Database ??
+imported.Database` and the same line with `&&` behave identically under the runner and
+differently in production — the mutant reads as equivalent when what it actually is is a
+crash on every real machine. Testing against a module shaped the way the runtime shapes
+one, rather than the way the runner does, is what tells them apart.
+
 So: **triage a survivor by injecting it, not by trusting the row.** Assert the injection
 actually matched the source first — a `replace` that silently finds nothing produces a
 passing suite that looks exactly like "the mutant survived", which is how the wrong
@@ -119,6 +127,30 @@ Both stay. They are the assertions that keep those invariants true if the queue 
 another source, and the symlink one is what stops a link to `~/.ssh` being walked the day an
 entry arrives from `stat` rather than `lstat`. Deleting them to gain two points of mutation
 score would trade a security guard for a number.
+
+#### Shapes with nothing to observe
+
+Three kinds recur across the backend, and none of them is a gap.
+
+- **An optimisation.** `withLocalRules` opens a `.gitignore` only when the entry list it
+  already holds says there is one. Widening that test costs a failed `open` per directory
+  and then returns exactly what the shortcut returns, so the mutants that widen it change
+  nothing but syscalls. The one that _narrows_ it does change an answer — a directory whose
+  only file is the `.gitignore` loses its rules — so the disable names two mutators rather
+  than `all`, and that mutant is killed by a test.
+- **A catch that returns undefined.** `measure` swallows a failed `stat` — a file deleted
+  between `readdir` and here — and returns `undefined`. So does an empty catch. The
+  behaviour is real; the mutant is the function.
+- **A value nothing compares.** `SKIP` and `ANONYMOUS_CALLER` each meet one `===`: against
+  `'descend'` and `'consider'`, and against nothing at all. Any other distinct value
+  behaves identically, and a test that pinned the spelling would be a test of the spelling.
+
+The counterpart is worth stating too, because two of these were _not_ equivalent when
+looked at properly. `isIgnored` guarded against a `layers[index]` that could not be
+undefined, and the guard masked an off-by-one in the loop that produced it; `evictOldest`
+did the same with `keys().next().value`. Both disappeared into `toReversed()` and a plain
+`for…of` — the mutants went with them, and the code got shorter. A pair of mutants that
+mask each other is usually a sign that one of the two lines is not needed.
 
 #### Equivalent arithmetic in the highlighter
 
