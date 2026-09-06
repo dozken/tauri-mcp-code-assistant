@@ -631,5 +631,6 @@ Three rules the runtime enforces, and one it does not:
 - Chat history is held by the client and replayed on each turn; there is no server-side session.
 - `generate_snippet` is template-based by design — it is the one deliberately mocked tool.
 - Only one indexing job runs at a time (a second request gets `409`).
-- `index.html` pins a CSP to `127.0.0.1:3001`, so changing `VITE_BACKEND_URL` means changing the
-  CSP too.
+- The desktop window's CSP lives in `tauri.conf.json`, which is static JSON with nowhere to
+  read an environment variable. Changing `VITE_BACKEND_URL` fails the build with the exact
+  string to paste there, rather than shipping a window that blocks every request.

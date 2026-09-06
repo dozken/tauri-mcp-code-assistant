@@ -3,10 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; connect-src 'self' http://127.0.0.1:3001 ws://127.0.0.1:3001 http://localhost:3001 ws://localhost:3001; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
-    />
+    <!--
+      Written by the `backend-csp` Vite plugin from the same backend URL the app
+      connects to. If that plugin ever goes missing the placeholder ships as-is and
+      blocks everything loudly, rather than allowing something quietly.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="%CSP%" />
     <title>AI Code Companion</title>
   </head>
   <body>
