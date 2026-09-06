@@ -17,8 +17,14 @@
  * metadata store uses `node:sqlite` precisely so this step has nothing to
  * compile. It is ~125 MB, which is the Node runtime; that is the price of a
  * desktop app that starts on its own.
+ *
+ * `--if-missing` stops after step 0 when the executable is already there. The
+ * development loop needs the file to exist — Tauri will not compile the shell
+ * without it — but never runs it, so rebuilding 125 MB on every `tauri dev` buys
+ * nothing. A release must not take that path: it packages unconditionally,
+ * because a bundle carrying yesterday's backend is worse than a slower build.
  */
-import { chmod, copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { promisify } from 'node:util';
@@ -66,8 +72,19 @@ const targetTriple = async () => {
 const executableName = (triple) =>
   `companion-backend-${triple}${process.platform === 'win32' ? '.exe' : ''}`;
 
+const exists = async (path) =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
+
 const main = async () => {
   const executable = fileURLToPath(new URL(executableName(await targetTriple()), OUT));
+
+  if (process.argv.includes('--if-missing') && (await exists(executable))) {
+    console.log(`Sidecar already built: ${executable}`);
+    return;
+  }
 
   await rm(fileURLToPath(OUT), { recursive: true, force: true });
   await mkdir(fileURLToPath(OUT), { recursive: true });

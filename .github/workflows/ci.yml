@@ -97,6 +97,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/src-tauri
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The shell declares the backend executable as a sidecar, and Tauri's build
+      # script refuses to run when a declared resource is missing — so even
+      # `cargo clippy` needs it on disk. Building it for real rather than touching
+      # a placeholder: this is the one job that then proves the packaging script
+      # still works, on the commit that changed it rather than at release time.
+      - run: npm run package --workspace @ai-code-companion/backend
       - run: npm run rust:fmt
       - run: npm run rust:lint
 

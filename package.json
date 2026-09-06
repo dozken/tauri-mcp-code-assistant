@@ -15,6 +15,7 @@
   "scripts": {
     "audit": "npm audit --audit-level=high",
     "build": "npm run build --workspaces --if-present",
+    "build:tauri": "npm run package --workspace @ai-code-companion/backend && npm run tauri:build --workspace app",
     "check": "npm-run-all --sequential format:check lint typecheck knip deps test",
     "clean": "npm run clean --workspaces --if-present",
     "deps": "depcruise app/src backend/src packages/contracts/src scripts",
@@ -22,7 +23,7 @@
     "dev:app": "npm run dev --workspace app",
     "dev:backend": "npm run dev --workspace backend",
     "dev:contracts": "npm run dev --workspace @ai-code-companion/contracts",
-    "dev:tauri": "npm run build --workspace @ai-code-companion/contracts && npm run tauri:dev --workspace app",
+    "dev:tauri": "npm run build --workspace @ai-code-companion/contracts && npm run package:if-missing --workspace @ai-code-companion/backend && npm run tauri:dev --workspace app",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "knip": "knip",

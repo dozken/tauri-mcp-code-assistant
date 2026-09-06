@@ -25,6 +25,7 @@ npm install          # or: bun install — builds packages/contracts via `prepar
 npm run dev          # contracts watcher + backend on :3001 + web UI on :1420
 # or
 npm run dev:tauri    # the same UI inside the Tauri desktop window
+npm run build:tauri  # installers, with the backend bundled in
 
 npm run check        # the whole gate: format, lint, types, dead code, boundaries, tests
 ```
@@ -598,8 +599,11 @@ process holding a port with no window to show for it — verified by killing the
 app and watching the backend go with it.
 
 `COMPANION_BACKEND_URL` points the window at a backend you are already running, and skips
-the sidecar entirely. A development build never spawns one, so `npm run dev:tauri` works
-exactly as it did.
+the sidecar entirely. A development build never spawns one either — but Tauri will not
+compile the shell while a declared sidecar is missing from disk, so `npm run dev:tauri`
+builds it the first time and skips it on every run after that. `npm run build:tauri`
+always rebuilds it, because a bundle carrying yesterday's backend is a worse outcome
+than a slower build.
 
 ## Plugins
 
