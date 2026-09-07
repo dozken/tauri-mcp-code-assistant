@@ -59,7 +59,7 @@ npm run mutation          # Stryker across all three workspaces
 ```
 
 What goes in which suite, which mutants are deliberately not chased and why, and the two
-rules that keep finding real bugs, are in [docs/testing.md](docs/testing.md).
+rules that keep finding real bugs, are in [testing.md](testing.md).
 
 | Suite                                      | Covers                                                                                |
 | ------------------------------------------ | ------------------------------------------------------------------------------------- |

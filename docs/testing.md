@@ -1,7 +1,7 @@
 # Testing policy
 
 The mechanics — how to run each suite, what CI enforces — are in the
-[README](../README.md#checks). This file is for the judgement calls: what gets
+[checks.md](checks.md). This file is for the judgement calls: what gets
 tested, what deliberately does not, and why. It exists so those decisions are argued once
 and reviewed like code, rather than re-litigated in every pull request.
 
