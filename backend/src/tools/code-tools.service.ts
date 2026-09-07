@@ -1,8 +1,9 @@
 import { readFile, stat } from 'node:fs/promises';
-import { basename, relative } from 'node:path';
-import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
+import { basename, join, relative } from 'node:path';
+import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
 import { resolveWithinRoots } from '../security/path-guard.js';
+import { METADATA_STORE, type MetadataStore } from '../common/metadata-store.js';
 import { isSensitivePath, sensitivePathReason } from '../security/secret-files.js';
 import { redactSecrets } from '../security/secret-values.js';
 import { detectLanguage } from '../indexing/chunker.js';
@@ -74,7 +75,45 @@ export class CodeToolsService {
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly vectorStore: VectorStoreService,
+    @Inject(METADATA_STORE) private readonly metadata: MetadataStore,
   ) {}
+
+  /**
+   * Resolves the path `explain_file` was given, including the ones `search_code`
+   * hands out.
+   *
+   * Those are relative to the *indexed root* — `security/local-access.ts` for a
+   * root of `backend/src` — because that is what reads well in a citation. But
+   * resolution is relative to the process's working directory, which for a
+   * packaged app is wherever the OS happened to start it, so a model that
+   * faithfully copied a path out of its own search results got "Path does not
+   * exist" every time. Measured: three questions, three correct files found by
+   * retrieval, three failures here, and the tool's error became the answer.
+   *
+   * So the roots are tried too. Every candidate still goes through
+   * `resolveWithinRoots`, which is what enforces the allow-list and resolves
+   * symlinks before checking containment — this widens the vocabulary, not the
+   * boundary.
+   */
+  private async resolveExplainPath(inputPath: string): Promise<string> {
+    const { allowedRoots } = this.config.indexing;
+    try {
+      return await resolveWithinRoots(inputPath, allowedRoots, 'file');
+    } catch (error) {
+      // Only a path that is not there is worth a second guess. A file that exists
+      // but sits outside the allow-list, or is a directory, has been answered.
+      if (!(error instanceof NotFoundException)) throw error;
+
+      for (const root of await this.metadata.listRoots()) {
+        try {
+          return await resolveWithinRoots(join(root.path, inputPath), allowedRoots, 'file');
+        } catch {
+          // Try the next root; the original error is thrown below if none match.
+        }
+      }
+      throw error;
+    }
+  }
 
   async searchCode(input: SearchCodeInput): Promise<SearchCodeResult> {
     const matches = await this.vectorStore.search(input.query, {
@@ -104,7 +143,7 @@ export class CodeToolsService {
   }
 
   async explainFile(input: ExplainFileInput): Promise<ExplainFileResult> {
-    const path = await resolveWithinRoots(input.path, this.config.indexing.allowedRoots, 'file');
+    const path = await this.resolveExplainPath(input.path);
     // Checked on the *resolved* path, so a symlink cannot launder ~/.ssh/id_rsa
     // into an innocuous-looking name inside the repo.
     if (isSensitivePath(path)) throw new ForbiddenException(sensitivePathReason(input.path));

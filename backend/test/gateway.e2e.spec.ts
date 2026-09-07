@@ -117,7 +117,8 @@ describe('Socket.IO gateways', () => {
     try {
       const events = await runChat(socket, 'where do we authenticate?');
 
-      expect(events.filter((event) => event.type === 'tool')).toHaveLength(1);
+      // Two: the seeded search, then the model's own call.
+      expect(events.filter((event) => event.type === 'tool')).toHaveLength(2);
       const tokens = events.filter((event) => event.type === 'token');
       expect(tokens.length).toBeGreaterThan(3);
 

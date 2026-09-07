@@ -140,7 +140,8 @@ describe('HTTP API', () => {
 
     const response = chatResponseSchema.parse(body);
     expect(response.model).toBe('stub-chat-model');
-    expect(response.toolCalls.map((call) => call.name)).toEqual(['search_code']);
+    // Two: the search every turn is seeded with, then the one the model asked for.
+    expect(response.toolCalls.map((call) => call.name)).toEqual(['search_code', 'search_code']);
     expect(response.message).toContain('auth.ts');
   });
 

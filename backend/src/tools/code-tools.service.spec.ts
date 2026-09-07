@@ -8,6 +8,7 @@ import type { VectorStoreService } from '../vector/vector-store.service.js';
 import { shapedCredential, testConfig } from '../../test/helpers.js';
 import { CodeToolsService } from './code-tools.service.js';
 import { formatSearchResult } from './formatters.js';
+import { MemoryMetadataStore } from '../common/metadata-store.js';
 
 const SAMPLE = `import { readFile } from 'node:fs/promises';
 import { Logger } from './logger.js';
@@ -28,6 +29,18 @@ export function formatUser(user: UserRecord): string {
   return user.id;
 }
 `;
+
+const storeWithRoot = (path: string): MemoryMetadataStore => {
+  const store = new MemoryMetadataStore();
+  void store.upsertRoot({
+    path,
+    fileCount: 0,
+    chunkCount: 0,
+    lastIndexedAt: new Date().toISOString(),
+    store: 'memory',
+  });
+  return store;
+};
 
 describe('CodeToolsService', () => {
   let root: string;
@@ -66,7 +79,11 @@ describe('CodeToolsService', () => {
         watchDebounceMs: 5,
       },
     });
-    tools = new CodeToolsService(config, store as unknown as VectorStoreService);
+    tools = new CodeToolsService(
+      config,
+      store as unknown as VectorStoreService,
+      new MemoryMetadataStore(),
+    );
   });
 
   afterEach(async () => {
@@ -122,6 +139,7 @@ describe('CodeToolsService', () => {
         new MemoryVectorStore(
           new HashingEmbeddings({ dimensions: 32 }),
         ) as unknown as VectorStoreService,
+        new MemoryMetadataStore(),
       ).searchCode({ query: 'anything' });
 
       expect(empty.matches).toEqual([]);
@@ -170,6 +188,55 @@ describe('CodeToolsService', () => {
       );
       expect(result.summary).toContain('user-repository.ts');
       expect(result.summary).toContain('1 class');
+    });
+
+    it('accepts the root-relative path search_code hands out', async () => {
+      // `search_code` cites `security/local-access.ts`, relative to the indexed
+      // root, because that is what reads well in an answer. Resolution is relative
+      // to the working directory, which for a packaged app is wherever the OS
+      // started it — so a model copying a path out of its own search results got
+      // "Path does not exist" every time, and the tool's error became the answer.
+      const rooted = new CodeToolsService(
+        testConfig({
+          indexing: {
+            chunkSize: 400,
+            chunkOverlap: 40,
+            maxFileBytes: 64 * 1024,
+            concurrency: 2,
+            allowedRoots: [root],
+            watch: false,
+            watchDebounceMs: 5,
+          },
+        }),
+        store as unknown as VectorStoreService,
+        storeWithRoot(root),
+      );
+
+      await expect(rooted.explainFile({ path: 'user-repository.ts' })).resolves.toMatchObject({
+        language: 'typescript',
+      });
+    });
+
+    it('still refuses a root-relative path that escapes the allow-list', async () => {
+      // The second attempt widens the vocabulary, not the boundary: every
+      // candidate goes back through the same guard.
+      const rooted = new CodeToolsService(
+        testConfig({
+          indexing: {
+            chunkSize: 400,
+            chunkOverlap: 40,
+            maxFileBytes: 64 * 1024,
+            concurrency: 2,
+            allowedRoots: [root],
+            watch: false,
+            watchDebounceMs: 5,
+          },
+        }),
+        store as unknown as VectorStoreService,
+        storeWithRoot(root),
+      );
+
+      await expect(rooted.explainFile({ path: '../../../../etc/hosts' })).rejects.toThrow();
     });
 
     it('refuses paths outside the allow-list', async () => {

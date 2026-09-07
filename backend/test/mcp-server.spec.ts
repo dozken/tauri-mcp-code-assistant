@@ -11,6 +11,7 @@ import { HashingEmbeddings } from '../src/vector/embeddings.js';
 import { MemoryVectorStore } from '../src/vector/memory-vector-store.js';
 import type { VectorStoreService } from '../src/vector/vector-store.service.js';
 import { testConfig } from './helpers.js';
+import { MemoryMetadataStore } from '../src/common/metadata-store.js';
 
 /**
  * Exercises the real MCP protocol (initialize, tools/list, tools/call) over the
@@ -59,7 +60,14 @@ describe('MCP server', () => {
     });
 
     server = new McpServer({ name: 'ai-code-companion', version: '0.1.0' });
-    registerCodeTools(server, new CodeToolsService(config, store as unknown as VectorStoreService));
+    registerCodeTools(
+      server,
+      new CodeToolsService(
+        config,
+        store as unknown as VectorStoreService,
+        new MemoryMetadataStore(),
+      ),
+    );
 
     client = new Client({ name: 'test-client', version: '0.0.0' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

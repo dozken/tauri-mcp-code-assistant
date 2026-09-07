@@ -13,6 +13,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools';
 import { AIMessage, AIMessageChunk } from '@langchain/core/messages';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { ChatStreamEvent } from '@ai-code-companion/contracts';
+import { MemoryMetadataStore } from '../common/metadata-store.js';
 
 const buildChatService = async (
   overrides: { timeoutMs?: number; tokenDelayMs?: number; logger?: PinoLogger } = {},
@@ -39,7 +40,11 @@ const buildChatService = async (
     ...base,
     llm: { ...base.llm, timeoutMs: overrides.timeoutMs ?? base.llm.timeoutMs },
   };
-  const codeTools = new CodeToolsService(config, store as unknown as VectorStoreService);
+  const codeTools = new CodeToolsService(
+    config,
+    store as unknown as VectorStoreService,
+    new MemoryMetadataStore(),
+  );
   const mcpTools = new McpToolsService(config, codeTools, silentLogger());
   // 0 ms per token keeps the test fast without changing the streaming code path.
   const model = new StubChatModel({ tokenDelayMs: overrides.tokenDelayMs ?? 0 });
@@ -68,9 +73,14 @@ describe('ChatService', () => {
 
     const events = await collect(chat.stream({ message: 'where do we authenticate the user?' }));
 
+    // Two: the seed the turn always runs, then the one the model asked for.
     const toolEvents = events.filter((event) => event.type === 'tool');
-    expect(toolEvents).toHaveLength(1);
-    expect(toolEvents[0]).toMatchObject({ tool: { name: 'search_code', failed: false } });
+    expect(toolEvents).toHaveLength(2);
+    expect(toolEvents.every((event) => event.type === 'tool' && !event.tool.failed)).toBe(true);
+    expect(toolEvents.map((event) => (event.type === 'tool' ? event.tool.name : ''))).toEqual([
+      'search_code',
+      'search_code',
+    ]);
 
     const tokens = events.filter((event) => event.type === 'token');
     expect(tokens.length).toBeGreaterThan(3);
@@ -91,7 +101,7 @@ describe('ChatService', () => {
 
     expect(response.model).toBe('stub-chat-model');
     expect(response.conversationId).toMatch(/[0-9a-f-]{36}/);
-    expect(response.toolCalls.map((call) => call.name)).toEqual(['search_code']);
+    expect(response.toolCalls.map((call) => call.name)).toEqual(['search_code', 'search_code']);
     expect(response.message).toContain('src/auth.ts');
   });
 
@@ -110,6 +120,7 @@ describe('ChatService', () => {
       new MemoryVectorStore(
         new HashingEmbeddings({ dimensions: 32 }),
       ) as unknown as VectorStoreService,
+      new MemoryMetadataStore(),
     );
     const chat = new ChatService(
       new StubChatModel({ tokenDelayMs: 0 }),
@@ -144,6 +155,7 @@ describe('ChatService', () => {
       new MemoryVectorStore(
         new HashingEmbeddings({ dimensions: 32 }),
       ) as unknown as VectorStoreService,
+      new MemoryMetadataStore(),
     );
     const model = new StubChatModel({ tokenDelayMs: 0 });
     model.bindTools = () => {
@@ -226,6 +238,102 @@ const serviceWith = (model: BaseChatModel, tools: StructuredToolInterface[]): Ch
   return new ChatService(model, mcpTools, new ConversationStore(config), config, silentLogger());
 };
 
+describe('ChatService seeded retrieval', () => {
+  /** A model that answers immediately, so only the seed can produce a tool call. */
+  const answersFlat = (text: string): BaseChatModel =>
+    ({
+      _llmType: () => 'flat',
+      bindTools: undefined,
+      invoke: async () => new AIMessageChunk({ content: text }),
+      stream: async function* () {
+        yield new AIMessageChunk({ content: text });
+      },
+    }) as unknown as BaseChatModel;
+
+  it('searches before the model gets a turn, without being asked to', async () => {
+    // The whole point: a model that never calls a tool still answers from the
+    // codebase. Measured against a 3B model, one question in three produced a
+    // *description* of a tool call rather than one, and the user could not tell.
+    const chat = serviceWith(answersFlat('done'), [
+      fakeTool('search_code', () => 'src/auth.ts:12-14'),
+    ]);
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+    const tools = events.filter((event) => event.type === 'tool');
+
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ tool: { name: 'search_code', failed: false } });
+  });
+
+  it('passes the question through as the query, and the root when there is one', async () => {
+    const seen: Record<string, unknown>[] = [];
+    const chat = serviceWith(answersFlat('done'), [
+      {
+        name: 'search_code',
+        description: 'x',
+        schema: { type: 'object' },
+        invoke: async (args: Record<string, unknown>) => {
+          seen.push(args);
+          return 'hit';
+        },
+      } as unknown as StructuredToolInterface,
+    ]);
+
+    await collect(chat.stream({ message: 'where do we authenticate?', root: '/repo' }));
+
+    expect(seen[0]).toEqual({ query: 'where do we authenticate?', root: '/repo' });
+  });
+
+  it('omits root entirely when the request has none, rather than sending undefined', async () => {
+    // `{ root: undefined }` is not the same as no root: a schema that rejects the
+    // key would fail the seed on every ordinary question.
+    const seen: Record<string, unknown>[] = [];
+    const chat = serviceWith(answersFlat('done'), [
+      {
+        name: 'search_code',
+        description: 'x',
+        schema: { type: 'object' },
+        invoke: async (args: Record<string, unknown>) => {
+          seen.push(args);
+          return 'hit';
+        },
+      } as unknown as StructuredToolInterface,
+    ]);
+
+    await collect(chat.stream({ message: 'anything' }));
+
+    expect(seen[0]).toEqual({ query: 'anything' });
+    expect('root' in (seen[0] ?? {})).toBe(false);
+  });
+
+  it('still answers when retrieval fails, and does not report a phantom tool call', async () => {
+    // Retrieval can be down — nothing indexed, a vector store that went away —
+    // and the model still has the tools bound. Losing the seed must not lose the
+    // turn, and a failed seed must not appear as though it had returned anything.
+    const chat = serviceWith(answersFlat('answered anyway'), [
+      fakeTool('search_code', () => {
+        throw new Error('chroma is unreachable');
+      }),
+    ]);
+
+    const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
+
+    expect(events.filter((event) => event.type === 'tool')).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: 'done', message: 'answered anyway' });
+  });
+
+  it('skips seeding when no search tool is published', async () => {
+    // An MCP server may offer a different set entirely. Seeding is a convenience
+    // for the tools this app ships, not a requirement on every provider.
+    const chat = serviceWith(answersFlat('no search here'), [fakeTool('teleport', () => 'x')]);
+
+    const events = await collect(chat.stream({ message: 'anything' }));
+
+    expect(events.filter((event) => event.type === 'tool')).toEqual([]);
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+  });
+});
+
 describe('ChatService tool loop', () => {
   it('answers from what the tools returned once the budget runs out', async () => {
     const chat = serviceWith(
@@ -237,7 +345,9 @@ describe('ChatService tool loop', () => {
     const done = events.at(-1);
 
     // Bounded, and never empty: the user gets an answer rather than a blank turn.
-    expect(events.filter((event) => event.type === 'tool')).toHaveLength(4);
+    // Five reported invocations, not four: the seed, then one per step of the
+    // budget. The budget still bounds the model's own calls.
+    expect(events.filter((event) => event.type === 'tool')).toHaveLength(5);
     expect(done).toMatchObject({ type: 'done' });
     expect(done).toMatchObject({ message: expect.stringContaining('Out of budget') });
   });
@@ -248,11 +358,14 @@ describe('ChatService tool loop', () => {
     ]);
 
     const events = await collect(chat.stream({ message: 'where do we authenticate?' }));
-    const first = events.find((event) => event.type === 'tool');
+    // Past the seeded search, which every turn runs before the model gets one.
+    const invented = events.find(
+      (event) => event.type === 'tool' && event.tool.name === 'teleport',
+    );
 
-    expect(first).toMatchObject({ tool: { name: 'teleport', failed: true } });
+    expect(invented).toMatchObject({ tool: { name: 'teleport', failed: true } });
     // Naming the alternatives is what lets the model recover on the next turn.
-    expect(first).toMatchObject({ tool: { result: expect.stringContaining('search_code') } });
+    expect(invented).toMatchObject({ tool: { result: expect.stringContaining('search_code') } });
   });
 
   it.each([

@@ -5,6 +5,7 @@ import { MemoryVectorStore } from '../vector/memory-vector-store.js';
 import type { VectorStoreService } from '../vector/vector-store.service.js';
 import { silentLogger, testConfig } from '../../test/helpers.js';
 import { McpToolsService, mcpChildEnv } from './mcp-tools.service.js';
+import { MemoryMetadataStore } from '../common/metadata-store.js';
 
 const build = (overrides: Record<string, unknown> = {}): McpToolsService => {
   const config = testConfig();
@@ -13,6 +14,7 @@ const build = (overrides: Record<string, unknown> = {}): McpToolsService => {
     new MemoryVectorStore(
       new HashingEmbeddings({ dimensions: 32 }),
     ) as unknown as VectorStoreService,
+    new MemoryMetadataStore(),
   );
   return new McpToolsService(
     { ...config, mcp: { ...config.mcp, ...overrides } },

@@ -94,12 +94,20 @@ const toolOutputText = (output: unknown): string => {
 
 const SYSTEM_PROMPT = `You are the AI Code Companion, embedded in a desktop app that has indexed the user's local codebase.
 
+A search has already been run for this question and its snippets are below. They are the actual source; read them before answering.
+
 Rules:
-- Before answering anything about the user's code, call search_code to ground yourself in the actual source.
+- Answer from the retrieved snippets. Call search_code again only when they do not cover the question.
 - Cite what you used as \`relative/path.ts:12-40\`.
 - Call explain_file when the user names a specific file.
 - Call generate_snippet when the user asks for new code.
-- If retrieval comes back empty, say so plainly and suggest indexing a folder. Never invent file paths.`;
+- If retrieval came back empty, say so plainly and suggest indexing a folder. Never invent file paths.`;
+
+/** The tool the turn is seeded with; see {@link ChatService.seedRetrieval}. */
+const SEARCH_TOOL = 'search_code';
+
+/** Introduces the seeded snippets, and names them so the prompt can refer back. */
+const RETRIEVED_HEADING = 'Snippets retrieved for this question:';
 
 /**
  * The agent loop: bind tools, stream the model, execute any tool calls it emits,
@@ -171,7 +179,14 @@ export class ChatService {
       const tools = await this.mcpTools.getTools();
       const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
       const bound = this.model.bindTools?.(tools) ?? this.model;
-      const messages = this.buildMessages(request);
+      // Retrieved first, so `buildMessages` can place it: message order is one
+      // thing and belongs in one place.
+      const seeded = await this.seedRetrieval(request, toolsByName, deadline.signal);
+      const messages = this.buildMessages(request, seeded?.result);
+      if (seeded) {
+        toolCalls.push(seeded);
+        yield { type: 'tool', conversationId, tool: seeded };
+      }
 
       for (let step = 0; step < MAX_TOOL_STEPS; step += 1) {
         // `yield*` forwards every token to the caller and hands back the turn's
@@ -283,6 +298,52 @@ export class ChatService {
     }
   }
 
+  /**
+   * Retrieves for the question before the model gets a turn, rather than asking it
+   * to decide.
+   *
+   * The agent loop still works — a model that wants more evidence calls
+   * `search_code` again — but nothing depends on it choosing to the first time.
+   * That choice is where small models fail, and they fail silently: measured
+   * against a 3B model at temperature 0, two questions in three produced a tool
+   * call and the third produced a *description* of one, as prose, with an empty
+   * `tool_calls`. The user gets a confident answer written from the model's own
+   * weights with no sign that the codebase was never consulted — which is the one
+   * failure this app exists to avoid.
+   *
+   * Reported as an ordinary tool invocation, because that is what it is: it shows
+   * in the transcript beside any call the model makes itself, and a turn that
+   * searched should look like one.
+   *
+   * Failure here is not failure of the turn. Retrieval can be down — no folder
+   * indexed, a vector store that has gone away — and a model with the tools still
+   * bound can still work. The turn proceeds without a seed.
+   */
+  private async seedRetrieval(
+    request: ChatRequest,
+    tools: ReadonlyMap<string, StructuredToolInterface>,
+    signal: AbortSignal,
+  ): Promise<ToolInvocation | undefined> {
+    // An MCP server is free to publish a different set; seeding is an optimisation
+    // for the tools this app ships, not a requirement on every provider.
+    if (!tools.has(SEARCH_TOOL)) return undefined;
+
+    const invocation = await this.runTool(
+      tools,
+      SEARCH_TOOL,
+      { query: request.message, ...(request.root === undefined ? {} : { root: request.root }) },
+      signal,
+    );
+
+    if (invocation.failed) {
+      // Stryker disable next-line all: log payload — see docs/testing.md#logging
+      this.logger.debug({ result: invocation.result }, 'Seed retrieval failed; asking anyway');
+      return undefined;
+    }
+
+    return invocation;
+  }
+
   /** Last resort when the tool budget runs out, so the user never gets an empty answer. */
   private async forceAnswer(messages: BaseMessage[], signal?: AbortSignal): Promise<string> {
     messages.push(
@@ -303,7 +364,7 @@ export class ChatService {
     this.conversations.forget(conversationId);
   }
 
-  private buildMessages(request: ChatRequest): BaseMessage[] {
+  private buildMessages(request: ChatRequest, retrieved?: string): BaseMessage[] {
     const messages: BaseMessage[] = [new SystemMessage(SYSTEM_PROMPT)];
 
     if (request.root) {
@@ -319,6 +380,11 @@ export class ChatService {
       messages.push(
         entry.role === 'user' ? new HumanMessage(entry.content) : new AIMessage(entry.content),
       );
+    }
+
+    // Evidence, then the question: the order the answer is written in.
+    if (retrieved !== undefined) {
+      messages.push(new SystemMessage(`${RETRIEVED_HEADING}\n\n${retrieved}`));
     }
 
     messages.push(new HumanMessage(request.message));
