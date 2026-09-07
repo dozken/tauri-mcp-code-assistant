@@ -1,0 +1,35 @@
+# The one service worth running in a container.
+#
+# Chroma wants a disk and a long life and no GPU, which is what a container is for.
+# A model is the opposite: on macOS a container cannot reach Metal, so Ollama in
+# Docker falls back to CPU and every answer takes several times longer. Run that
+# one natively — see the README.
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    # Loopback, not 0.0.0.0. Chroma ships with no authentication, so a published
+    # port is a copy of every chunk of every codebase you have indexed, offered to
+    # anyone on the network. The app reaches it from the host — it is a sidecar
+    # inside the desktop bundle, not a container — so the port has to exist; it
+    # just has nothing to gain from being reachable off the machine.
+    #
+    # 8000 is Chroma's own default and a popular one generally, so it is a
+    # variable: `CHROMA_PORT=8001 docker compose up -d` when something already
+    # holds it, and point the app at the same number with `CHROMA_URL`.
+    ports: ['127.0.0.1:${CHROMA_PORT:-8000}:8000']
+    environment:
+      IS_PERSISTENT: 'TRUE'
+      PERSIST_DIRECTORY: /data
+      ANONYMIZED_TELEMETRY: 'FALSE'
+    volumes:
+      - chroma-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/api/v2/heartbeat']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  chroma-data:

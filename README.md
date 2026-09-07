@@ -79,12 +79,23 @@ question. `npm run dev:tauri` additionally needs the
 ### Optional: real ChromaDB
 
 ```bash
-docker run -p 8000:8000 chromadb/chroma
+docker compose up -d                      # or: CHROMA_PORT=8001 docker compose up -d
 ```
+
+`compose.yaml` binds it to **loopback only** and keeps its data in a named volume.
+Chroma ships with no authentication, so a port on `0.0.0.0` offers every chunk of every
+codebase you have indexed to anyone on the network; the app reaches it from the host, so
+the port has to exist but has nothing to gain from being reachable off the machine. Set
+`CHROMA_PORT` when something already holds 8000, and point the app at the same number
+with `CHROMA_URL`.
 
 With no server reachable the app logs a warning and falls back to an in-memory store —
 usable immediately, but the index is lost on restart (folders are then flagged
 _needs re-index_ in the sidebar).
+
+Chroma is the one piece worth containerising. A model is the opposite: on macOS a
+container cannot reach Metal, so Ollama in Docker runs on the CPU and every answer takes
+several times longer. Install that one natively.
 
 ### Optional: keeping the index live
 
