@@ -1,0 +1,145 @@
+name: Sidecar
+
+# The desktop bundle carries a single-file Node build of the backend, and until
+# now CI only ever *built* it. A binary that compiles and a binary that starts are
+# different claims, and the difference is what shipped in v0.1.0: `postject` writes
+# a segment into a copy of `node`, which leaves the inherited Apple signature
+# describing bytes that are no longer there. An Apple silicon kernel kills a
+# Mach-O whose signature does not match, so the bundle's backend could not have
+# started on the machines most people would download it to. Nothing caught it,
+# because nothing ran it.
+#
+# So this runs it. On every platform the release builds for, the sidecar is
+# packaged, executed, and asked for its health endpoint over HTTP — the same
+# sequence the desktop shell performs at launch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/scripts/package.mjs'
+      - 'backend/src/main.ts'
+      - 'backend/package.json'
+      - '.github/workflows/sidecar.yml'
+  pull_request:
+    paths:
+      - 'backend/scripts/package.mjs'
+      - 'backend/src/main.ts'
+      - 'backend/package.json'
+      - '.github/workflows/sidecar.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (Apple silicon)
+          - os: macos-15-intel
+            label: macOS (Intel)
+          - os: ubuntu-22.04
+            label: Linux
+          - os: windows-latest
+            label: Windows
+    env:
+      CHROMA_ENABLED: 'false'
+      LLM_PROVIDER: stub
+      STUB_TOKEN_DELAY_MS: '0'
+      HOST: 127.0.0.1
+      PORT: '45017'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # Only for `rustc -vV`: the sidecar is named by the host target triple,
+      # because that is the name Tauri will look it up under.
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+
+      - name: Package the backend as a sidecar
+        run: npm run package --workspace @ai-code-companion/backend
+
+      # TEMPORARY, for one run: rebuild the sidecar the way v0.1.0 did — copy
+      # `node`, inject, ship — and report what macOS makes of it. Removed once the
+      # answer is on the record; the fix it justifies stays.
+      - name: Evidence — what the unsigned path produces
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        shell: bash
+        env:
+          PORT: '45019'
+        run: |
+          demo=/tmp/unsigned-sidecar
+          cp "$(command -v node)" "$demo"
+          chmod +x "$demo"
+          node "$(node -p "require.resolve('postject/dist/cli.js')")" \
+            "$demo" NODE_SEA_BLOB backend/dist-bin/sea-prep.blob \
+            --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 \
+            --macho-segment-name NODE_SEA
+
+          echo "=== arch: $(uname -m) ==="
+          echo "=== codesign --verify --strict ==="
+          codesign --verify --strict --verbose=2 "$demo"
+          echo "verify exit: $?"
+
+          echo "=== does it run? ==="
+          "$demo" > /tmp/unsigned.log 2>&1 &
+          pid=$!
+          sleep 8
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "still running after 8s: it executed"
+            kill "$pid" 2>/dev/null || true
+          else
+            wait "$pid"
+            echo "exec exit: $? (137 = SIGKILL, the invalid-signature kill)"
+          fi
+          echo "=== its output ==="
+          cat /tmp/unsigned.log || true
+
+      - name: Read the signature macOS will read
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sidecar=$(ls backend/dist-bin/companion-backend-*)
+          codesign --display --verbose=4 "$sidecar"
+          codesign --verify --strict --verbose=2 "$sidecar"
+
+      # The claim under test: this file, run as a program, serves HTTP. `/health`
+      # is the one unauthenticated route, so a reply proves the binary executed,
+      # Nest booted and the port is open — without a token to arrange.
+      - name: Start it, and ask it for a health check
+        shell: bash
+        run: |
+          set -euo pipefail
+          sidecar=$(ls backend/dist-bin/companion-backend-*)
+          "./$sidecar" > sidecar.log 2>&1 &
+          pid=$!
+
+          for _ in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORT}/health" -o health.json; then break; fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "The sidecar exited before it ever listened."
+              break
+            fi
+            sleep 1
+          done
+
+          kill "$pid" 2>/dev/null || true
+
+          echo '--- what it logged ---'
+          cat sidecar.log || true
+          echo '--- what it answered ---'
+          cat health.json || true
+          echo
+
+          grep -q '"status":"ok"' health.json

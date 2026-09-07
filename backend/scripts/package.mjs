@@ -3,7 +3,7 @@
  * Builds the backend into one executable, for the desktop app to ship as a
  * sidecar.
  *
- * Three steps, each of which had to be earned:
+ * Four steps, each of which had to be earned:
  *
  * 1. **Bundle.** esbuild flattens `dist/` and every dependency into one CommonJS
  *    file. Nest reaches for a handful of optional packages through dynamic
@@ -12,6 +12,7 @@
  *    would drag in half of Nest for nothing.
  * 2. **Prepare.** Node's own SEA config turns that file into a blob.
  * 3. **Inject.** `postject` writes the blob into a copy of the `node` binary.
+ * 4. **Re-sign,** on macOS, because step 3 broke the signature step 0 copied in.
  *
  * The result needs no Node on the user's machine and no native modules — the
  * metadata store uses `node:sqlite` precisely so this step has nothing to
@@ -78,6 +79,46 @@ const exists = async (path) =>
     () => false,
   );
 
+/**
+ * Puts a valid signature back on the injected binary — on macOS, where a missing
+ * one is fatal rather than untidy.
+ *
+ * The copy we start from is Apple-signed, because it is a copy of the official
+ * `node`. `postject` then adds a segment to it, which leaves the signature
+ * describing a file that no longer exists. An Apple silicon kernel refuses to
+ * execute a Mach-O whose signature does not match its bytes — not a warning, a
+ * `SIGKILL` before the first line runs — and an *invalid* signature is worse than
+ * none, because the kernel ad-hoc signs an unsigned binary on first run and will
+ * not rescue a broken one. So: strip the inherited signature, inject, sign
+ * ad-hoc. These are the steps Node's own single-executable documentation
+ * prescribes, in its order.
+ *
+ * Ad-hoc (`--sign -`) is a signature without an identity behind it. It is what
+ * makes the binary *run*; it does nothing about Gatekeeper, which asks a
+ * different question — see docs/releasing.md.
+ */
+const stripSignature = async (executable) => {
+  if (process.platform !== 'darwin') return;
+
+  // Whether there was a signature to remove is not this step's business — only
+  // that none survives into the injection — and `codesign` exits non-zero when
+  // there was nothing there. Same shape as `exists` above: an outcome, not a throw.
+  await run('codesign', ['--remove-signature', executable]).then(
+    () => true,
+    () => false,
+  );
+};
+
+const signAdHoc = async (executable) => {
+  if (process.platform !== 'darwin') return;
+
+  await run('codesign', ['--sign', '-', '--force', executable]);
+  // Verified rather than assumed: shipping a bundle whose backend cannot start is
+  // the failure this whole function exists to prevent, and it is invisible until a
+  // user downloads it. `--strict` is the check the kernel itself will apply.
+  await run('codesign', ['--verify', '--strict', '--verbose=2', executable]);
+};
+
 const main = async () => {
   const executable = fileURLToPath(new URL(executableName(await targetTriple()), OUT));
 
@@ -114,6 +155,7 @@ const main = async () => {
   // against rather than whatever happens to be installed.
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
+  await stripSignature(executable);
   // Resolved rather than joined: npm hoists workspace dependencies to the root,
   // so the path is not where the package that declares it lives.
   const postject = createRequire(import.meta.url).resolve('postject/dist/cli.js');
@@ -126,6 +168,7 @@ const main = async () => {
     FUSE,
     ...(process.platform === 'darwin' ? ['--macho-segment-name', 'NODE_SEA'] : []),
   ]);
+  await signAdHoc(executable);
 
   console.log(`Packaged ${executable}`);
 };
