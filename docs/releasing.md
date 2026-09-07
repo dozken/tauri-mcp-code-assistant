@@ -30,14 +30,32 @@ being free — an absent secret reaches the runner as an empty string, not as an
 variable, and Tauri reads a defined `APPLE_CERTIFICATE` as "sign with this", so the
 workflow exports the Apple group only when there is a certificate in it.
 
-Bundles are **unsigned** unless the certificates below are configured, so anyone
-downloading a published macOS or Windows build meets Gatekeeper or SmartScreen
-first. That is worth knowing before publishing, not after.
+### Signing, and what unsigned costs
 
-| Secret                                                                      | Gives you                          |
-| --------------------------------------------------------------------------- | ---------------------------------- |
-| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | A macOS build Gatekeeper will open |
-| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`                               | Notarisation on top of that        |
+Bundles are **unsigned** unless the certificates below are configured. This is not a
+warning a determined user clicks through. On macOS the download reports _"AI Code
+Companion" is damaged and can't be opened_ — Gatekeeper's wording for a quarantined app
+whose signature it cannot check — and Sequoia 15.1 removed the Control-click → Open
+escape. Whoever downloads it has to strip the quarantine flag by hand
+(`xattr -dr com.apple.quarantine`, in the README) before they can run anything.
+
+Two signatures are involved and they are not the same thing, which is easy to conflate:
+
+- **Ad-hoc**, `codesign --sign -`, is what makes a Mach-O _executable_ at all on Apple
+  silicon. The build already applies it to the sidecar, and must — see below. It carries
+  no identity, so Gatekeeper is no happier for it.
+- **Developer ID plus notarisation** is what Gatekeeper asks for. Nothing short of both
+  opens a downloaded app on a double-click: a Developer ID signature on its own still
+  produces "Apple could not verify it is free of malware", just a politer dialog with a
+  working **Open Anyway**.
+
+| Secret                                                                      | Gives you                                               |
+| --------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY` | A signed macOS build — blocked, but with an Open Anyway |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`                               | Notarisation, which is what actually opens it           |
+
+Windows is milder: SmartScreen shows "Windows protected your PC" with a **Run anyway**
+behind **More info**, and reputation accrues with downloads even unsigned.
 
 ### Auto-updates are one command away, and off
 

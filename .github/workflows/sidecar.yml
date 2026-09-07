@@ -69,16 +69,41 @@ jobs:
       - name: Package the backend as a sidecar
         run: npm run package --workspace @ai-code-companion/backend
 
-      # TEMPORARY, for one run: rebuild the sidecar the way v0.1.0 did — copy
-      # `node`, inject, ship — and report what macOS makes of it. Removed once the
-      # answer is on the record; the fix it justifies stays.
-      - name: Evidence — what the unsigned path produces
+      # TEMPORARY: characterise the bug rather than argue it. Rebuild the sidecar
+      # the way v0.1.0 did — copy `node`, inject, ship — and put both that and the
+      # signed one through the same four questions, with and without the quarantine
+      # flag a browser attaches to a download. Removed once the answers are on the
+      # record; the fix they justify stays.
+      - name: Evidence — signed and unsigned, quarantined and not
         if: runner.os == 'macOS'
         continue-on-error: true
         shell: bash
-        env:
-          PORT: '45019'
         run: |
+          set +e
+          # The value Chrome writes: flags;timestamp;agent;uuid.
+          QUARANTINE='0081;00000000;Chrome;00000000-0000-0000-0000-000000000000'
+
+          check() {
+            local label=$1 path=$2 port=$3
+            echo "=== $label"
+            codesign --verify --strict --verbose=2 "$path" 2>&1 | sed 's/^/    /'
+            codesign --verify --strict "$path" 2>/dev/null
+            echo "    codesign --verify: $?"
+            echo "    xattr: $(xattr "$path" | tr '\n' ' ')"
+
+            PORT=$port "$path" > "/tmp/$label.log" 2>&1 &
+            local pid=$!
+            sleep 6
+            if kill -0 "$pid" 2>/dev/null; then
+              echo "    exec: alive after 6s — it started"
+              kill "$pid" 2>/dev/null
+            else
+              wait "$pid"
+              echo "    exec: exited $? (137 = SIGKILL, 'Killed: 9')"
+            fi
+            sed 's/^/    | /' "/tmp/$label.log" | head -4
+          }
+
           demo=/tmp/unsigned-sidecar
           cp "$(command -v node)" "$demo"
           chmod +x "$demo"
@@ -87,24 +112,15 @@ jobs:
             --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 \
             --macho-segment-name NODE_SEA
 
-          echo "=== arch: $(uname -m) ==="
-          echo "=== codesign --verify --strict ==="
-          codesign --verify --strict --verbose=2 "$demo"
-          echo "verify exit: $?"
+          cp "$(ls backend/dist-bin/companion-backend-*)" /tmp/signed-sidecar
 
-          echo "=== does it run? ==="
-          "$demo" > /tmp/unsigned.log 2>&1 &
-          pid=$!
-          sleep 8
-          if kill -0 "$pid" 2>/dev/null; then
-            echo "still running after 8s: it executed"
-            kill "$pid" 2>/dev/null || true
-          else
-            wait "$pid"
-            echo "exec exit: $? (137 = SIGKILL, the invalid-signature kill)"
-          fi
-          echo "=== its output ==="
-          cat /tmp/unsigned.log || true
+          echo "### arch: $(uname -m), $(sw_vers -productName) $(sw_vers -productVersion)"
+          check unsigned-clean "$demo" 45021
+          xattr -w com.apple.quarantine "$QUARANTINE" "$demo"
+          check unsigned-quarantined "$demo" 45022
+          check signed-clean /tmp/signed-sidecar 45023
+          xattr -w com.apple.quarantine "$QUARANTINE" /tmp/signed-sidecar
+          check signed-quarantined /tmp/signed-sidecar 45024
 
       - name: Read the signature macOS will read
         if: runner.os == 'macOS'

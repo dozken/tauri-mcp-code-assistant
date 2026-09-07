@@ -15,6 +15,38 @@ For actual answers, point it at a local Ollama and nothing leaves the machine; o
 
 ---
 
+## Installing a release
+
+Bundles for every platform are attached to each
+[release](https://github.com/dozken/tauri-mcp-code-assistant/releases). They are **not
+code-signed** — that needs an Apple Developer ID and a Windows certificate, neither of
+which this project has — and both systems treat an unsigned download as hostile.
+
+**macOS** reports _"AI Code Companion" is damaged and can't be opened. You should move it
+to the Trash._ It is not damaged. That is what macOS says about a quarantined app whose
+signature it cannot check, and the quarantine flag is something your browser attached, not
+something in the file. Remove it and the app opens:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/AI Code Companion.app"
+```
+
+Control-click → **Open** used to be the way past this; macOS Sequoia 15.1 removed it. After
+a blocked launch, System Settings → Privacy & Security sometimes offers **Open Anyway** near
+the bottom — the command above is the one that always works.
+
+**Windows** shows "Windows protected your PC" from SmartScreen: **More info** → **Run
+anyway**.
+
+Nothing in the build can avoid this. Ad-hoc signing does not help — it is what makes the
+binary _run_, not what Gatekeeper asks about — so only a paid Developer ID plus notarisation
+would let a macOS download open on a double-click. [releasing.md](docs/releasing.md) has
+the secrets to set if you have one.
+
+Building it yourself, below, skips all of it: a locally built app was never quarantined.
+
+---
+
 ## Quick start
 
 > **npm 11+ for a fresh install.** npm 10's dependency resolver crashes on

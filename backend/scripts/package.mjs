@@ -80,22 +80,25 @@ const exists = async (path) =>
   );
 
 /**
- * Puts a valid signature back on the injected binary — on macOS, where a missing
- * one is fatal rather than untidy.
+ * Puts a signature on the injected binary — on macOS, where the lack of one is
+ * fatal rather than untidy.
  *
- * The copy we start from is Apple-signed, because it is a copy of the official
- * `node`. `postject` then adds a segment to it, which leaves the signature
- * describing a file that no longer exists. An Apple silicon kernel refuses to
- * execute a Mach-O whose signature does not match its bytes — not a warning, a
- * `SIGKILL` before the first line runs — and an *invalid* signature is worse than
- * none, because the kernel ad-hoc signs an unsigned binary on first run and will
- * not rescue a broken one. So: strip the inherited signature, inject, sign
- * ad-hoc. These are the steps Node's own single-executable documentation
- * prescribes, in its order.
+ * Measured on an Apple silicon runner rather than reasoned about: after
+ * `postject` writes its segment, `codesign --verify` reports "code object is not
+ * signed at all". The copy went in Apple-signed, being a copy of the official
+ * `node`; rewriting the Mach-O does not carry the signature across. Apple silicon
+ * requires every executable to have one. The kernel will ad-hoc sign an unsigned
+ * binary on first run, but not a quarantined one — and everything inside a
+ * downloaded `.app` is quarantined. An unsigned nested binary also puts
+ * notarisation out of reach, which is the only route to a macOS download that
+ * opens on a double-click.
  *
- * Ad-hoc (`--sign -`) is a signature without an identity behind it. It is what
- * makes the binary *run*; it does nothing about Gatekeeper, which asks a
- * different question — see docs/releasing.md.
+ * So: strip whatever came in, inject, sign ad-hoc. Node's own single-executable
+ * documentation prescribes those three, in that order.
+ *
+ * Ad-hoc (`--sign -`) is a signature with no identity behind it. It is what lets
+ * the binary run at all; it does nothing about Gatekeeper, which asks a different
+ * question — see docs/releasing.md.
  */
 const stripSignature = async (executable) => {
   if (process.platform !== 'darwin') return;

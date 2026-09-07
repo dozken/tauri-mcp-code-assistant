@@ -150,6 +150,24 @@ jobs:
             to install, no Node on the machine. Point the window at a backend you
             are already running with `COMPANION_BACKEND_URL`.
 
+            ### macOS will call this download damaged. It is not.
+
+            The bundles are unsigned, and *"is damaged and can't be opened"* is
+            what macOS says about a quarantined app whose signature it cannot
+            check. The quarantine flag came from your browser, not from the file.
+            Drag the app to Applications, then:
+
+            ```
+            xattr -dr com.apple.quarantine "/Applications/AI Code Companion.app"
+            ```
+
+            Control-click → **Open** was the old way past this; macOS Sequoia 15.1
+            removed it. Removing the step for good needs an Apple Developer ID and
+            notarisation, which this project does not have.
+
+            On **Windows**, SmartScreen shows "Windows protected your PC":
+            **More info** → **Run anyway**.
+
   # Separate, and last: publishing is one action for the whole release, not one
   # per platform, and it must not happen until every bundle is attached. A release
   # published with three of four platforms is worse than no release.
