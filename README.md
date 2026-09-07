@@ -103,6 +103,29 @@ It is off by default because it holds an OS watch handle per folder for as long 
 runs, and recursive watching is unsupported on some platforms and filesystems — where it is,
 the app logs a warning and carries on indexing on demand.
 
+### Configuring the installed app
+
+Every setting below is an environment variable, which a terminal has and a double-click
+does not: launched from Finder or the Start menu the app inherits almost nothing, so it
+would run the offline stub and the hashing embeddings whatever is installed on the
+machine. `~/.ai-code-companion/config.json` is where you put them instead — the same
+names, read at startup:
+
+```json
+{
+  "LLM_PROVIDER": "ollama",
+  "LLM_MODEL": "qwen2.5-coder:7b",
+  "EMBEDDINGS_PROVIDER": "ollama",
+  "CHROMA_ENABLED": true,
+  "CHROMA_URL": "http://127.0.0.1:8001"
+}
+```
+
+`chmod 600` it if it holds an API key; the app says so in its log if it is readable by
+anyone else. A real environment variable still wins, so `LLM_PROVIDER=openai npm start`
+overrides the file without editing it. Broken JSON is reported and ignored rather than
+taken as a reason not to start.
+
 ### Optional: a real model
 
 A local one, which needs no key and sends nothing off the machine — for a tool that

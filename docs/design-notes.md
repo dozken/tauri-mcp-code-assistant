@@ -44,6 +44,38 @@ desktop CSP names `http://127.0.0.1:*` beside `ws://127.0.0.1:*`, and so does th
 one. Socket.IO upgrades off polling by itself wherever a websocket is permitted, so a
 browser build still ends up on one and the desktop window keeps working when it cannot.
 
+#### Settings come from a file the environment sits on top of
+
+The backend reads everything from `process.env`, which is right for a service and
+insufficient for a desktop app: a process started by Finder inherits almost nothing, and
+the Tauri shell passes only the four values it computes itself — port, host, database
+path, token path. Nothing a user could set. An installed app was therefore permanently on
+the offline stub and the hashing embeddings, and since those embeddings carry no meaning
+the retrieval ranking was arbitrary. It looked like a broken model; it was an
+unreachable setting.
+
+`~/.ai-code-companion/config.json` holds the same names the README tells you to export,
+and `applySettings` puts them underneath `process.env` with `??=` at startup — before
+Nest builds anything from it. Three consequences worth stating:
+
+- **The names are the environment variable names**, not a friendlier schema. A mapping
+  table would be a second list to keep in step with `configuration.ts`, and the way that
+  fails is that a renamed setting keeps working from one source and silently stops from
+  the other.
+- **A real environment variable wins**, so a one-off run overrides the file without
+  editing it, and the packaged shell's own four values cannot be shadowed by a config
+  file into pointing at the wrong port or database.
+- **It never refuses to start.** Broken JSON, a key whose value is an object, a file
+  other users can read: each is a line in the log and the app comes up anyway. A desktop
+  app that dies on a stray comma is worse than one that starts and complains — but it
+  must complain, because settings that quietly did nothing is the failure that sent us
+  looking here in the first place.
+
+Not the app-data directory the shell uses for the database and token. Those are written
+by the program and belong where the OS wants them; this one is typed by a person, and
+`~/Library/Application Support/dev.aicodecompanion.desktop/` is not a path anyone opens
+twice.
+
 ### Security notes
 
 The backend reads local files, so:

@@ -6,6 +6,7 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
 import { ConfiguredIoAdapter } from './common/io-adapter.js';
 import { APP_CONFIG, loadConfig, type AppConfig } from './config/configuration.js';
+import { applySettings, readSettingsFile } from './config/settings-file.js';
 
 /**
  * Writes the token where local tooling can find it, owner-readable only.
@@ -47,6 +48,11 @@ const exitWithParent = (app: { close: () => Promise<void> }): void => {
 };
 
 const bootstrap = async (): Promise<void> => {
+  // Before anything reads the environment, and before Nest builds the config from
+  // it. Whatever the file says is a default; the real environment still wins.
+  const settings = readSettingsFile();
+  applySettings(settings);
+
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get<AppConfig>(APP_CONFIG);
 
@@ -56,6 +62,11 @@ const bootstrap = async (): Promise<void> => {
   app.enableShutdownHooks();
 
   const logger = app.get(Logger);
+
+  // Held until the logger exists rather than printed to a stdout nobody sees. A
+  // settings file that was there but unusable must say so: silently falling back
+  // to the offline defaults is how you end up asking why the answers are random.
+  for (const problem of settings.problems) logger.warn(problem);
 
   if (config.auth.enabled) {
     try {
