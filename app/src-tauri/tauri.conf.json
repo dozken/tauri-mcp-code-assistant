@@ -41,7 +41,8 @@
     ],
     "externalBin": ["../../backend/dist-bin/companion-backend"],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "entitlements.plist"
     }
   }
 }

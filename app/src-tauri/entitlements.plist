@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What the bundled Node backend needs to run once the bundle is signed.
+
+  Signing turns on the hardened runtime, and under it V8 cannot allocate the
+  executable memory it compiles into: the sidecar dies before its first line with
+  "Fatal process out of memory: Failed to reserve virtual memory for CodeRange".
+  An unsigned bundle never hit this, which is why it appeared the moment the app
+  was signed at all rather than when it was written.
+
+  These are the three the Node runtime actually needs, and no others.
+-->
+<plist version="1.0">
+  <dict>
+    <!-- V8 compiles JavaScript to machine code and must be allowed to run it. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- The pages it writes that code into are not themselves signed. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- The shell spawns the sidecar, which is a separately signed executable. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>
