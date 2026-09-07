@@ -2,16 +2,16 @@ name: Sidecar
 
 # The desktop bundle carries a single-file Node build of the backend, and until
 # now CI only ever *built* it. A binary that compiles and a binary that starts are
-# different claims, and the difference is what shipped in v0.1.0: `postject` writes
-# a segment into a copy of `node`, which leaves the inherited Apple signature
-# describing bytes that are no longer there. An Apple silicon kernel kills a
-# Mach-O whose signature does not match, so the bundle's backend could not have
-# started on the machines most people would download it to. Nothing caught it,
-# because nothing ran it.
+# different claims, and nothing here had ever tested the second one — v0.1.0
+# shipped a sidecar that `codesign` reports as "not signed at all" and no check
+# noticed, because no check ran it.
 #
 # So this runs it. On every platform the release builds for, the sidecar is
 # packaged, executed, and asked for its health endpoint over HTTP — the same
-# sequence the desktop shell performs at launch.
+# sequence the desktop shell performs at launch. On macOS it also reads back the
+# signature, which is the part that stays quiet when it goes wrong: measured on an
+# Apple silicon runner, an unsigned sidecar starts perfectly well (the kernel
+# ad-hoc signs it on first execution), so only `codesign --verify` can tell.
 
 on:
   workflow_dispatch:
@@ -68,59 +68,6 @@ jobs:
 
       - name: Package the backend as a sidecar
         run: npm run package --workspace @ai-code-companion/backend
-
-      # TEMPORARY: characterise the bug rather than argue it. Rebuild the sidecar
-      # the way v0.1.0 did — copy `node`, inject, ship — and put both that and the
-      # signed one through the same four questions, with and without the quarantine
-      # flag a browser attaches to a download. Removed once the answers are on the
-      # record; the fix they justify stays.
-      - name: Evidence — signed and unsigned, quarantined and not
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          # The value Chrome writes: flags;timestamp;agent;uuid.
-          QUARANTINE='0081;00000000;Chrome;00000000-0000-0000-0000-000000000000'
-
-          check() {
-            local label=$1 path=$2 port=$3
-            echo "=== $label"
-            codesign --verify --strict --verbose=2 "$path" 2>&1 | sed 's/^/    /'
-            codesign --verify --strict "$path" 2>/dev/null
-            echo "    codesign --verify: $?"
-            echo "    xattr: $(xattr "$path" | tr '\n' ' ')"
-
-            PORT=$port "$path" > "/tmp/$label.log" 2>&1 &
-            local pid=$!
-            sleep 6
-            if kill -0 "$pid" 2>/dev/null; then
-              echo "    exec: alive after 6s — it started"
-              kill "$pid" 2>/dev/null
-            else
-              wait "$pid"
-              echo "    exec: exited $? (137 = SIGKILL, 'Killed: 9')"
-            fi
-            sed 's/^/    | /' "/tmp/$label.log" | head -4
-          }
-
-          demo=/tmp/unsigned-sidecar
-          cp "$(command -v node)" "$demo"
-          chmod +x "$demo"
-          node "$(node -p "require.resolve('postject/dist/cli.js')")" \
-            "$demo" NODE_SEA_BLOB backend/dist-bin/sea-prep.blob \
-            --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 \
-            --macho-segment-name NODE_SEA
-
-          cp "$(ls backend/dist-bin/companion-backend-*)" /tmp/signed-sidecar
-
-          echo "### arch: $(uname -m), $(sw_vers -productName) $(sw_vers -productVersion)"
-          check unsigned-clean "$demo" 45021
-          xattr -w com.apple.quarantine "$QUARANTINE" "$demo"
-          check unsigned-quarantined "$demo" 45022
-          check signed-clean /tmp/signed-sidecar 45023
-          xattr -w com.apple.quarantine "$QUARANTINE" /tmp/signed-sidecar
-          check signed-quarantined /tmp/signed-sidecar 45024
 
       - name: Read the signature macOS will read
         if: runner.os == 'macOS'

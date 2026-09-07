@@ -1,6 +1,6 @@
 [package]
 name = "ai-code-companion"
-version = "0.1.0"
+version = "0.1.1"
 description = "AI Code Companion — chat with your codebase"
 authors = ["AI Code Companion contributors"]
 edition = "2021"

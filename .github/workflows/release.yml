@@ -168,6 +168,18 @@ jobs:
             On **Windows**, SmartScreen shows "Windows protected your PC":
             **More info** → **Run anyway**.
 
+      # The smoke test in `sidecar.yml` proves the packaged binary runs; this
+      # proves the copy that ends up *inside the bundle* is still the same one.
+      # Tauri strips the target triple when it copies a sidecar in, so the name
+      # changes and the signature must not.
+      - name: Check the backend inside the bundle is still signed
+        if: startsWith(matrix.os, 'macos')
+        shell: bash
+        run: |
+          set -euo pipefail
+          nested="app/src-tauri/target/release/bundle/macos/AI Code Companion.app/Contents/MacOS/companion-backend"
+          codesign --verify --strict --verbose=2 "$nested"
+
   # Separate, and last: publishing is one action for the whole release, not one
   # per platform, and it must not happen until every bundle is attached. A release
   # published with three of four platforms is worse than no release.

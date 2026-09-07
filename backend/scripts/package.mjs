@@ -80,25 +80,24 @@ const exists = async (path) =>
   );
 
 /**
- * Puts a signature on the injected binary — on macOS, where the lack of one is
- * fatal rather than untidy.
+ * Signs the injected binary, on macOS.
  *
- * Measured on an Apple silicon runner rather than reasoned about: after
- * `postject` writes its segment, `codesign --verify` reports "code object is not
- * signed at all". The copy went in Apple-signed, being a copy of the official
- * `node`; rewriting the Mach-O does not carry the signature across. Apple silicon
- * requires every executable to have one. The kernel will ad-hoc sign an unsigned
- * binary on first run, but not a quarantined one — and everything inside a
- * downloaded `.app` is quarantined. An unsigned nested binary also puts
- * notarisation out of reach, which is the only route to a macOS download that
- * opens on a double-click.
+ * `postject` rewrites the Mach-O, and the Apple signature the copy inherited from
+ * the official `node` does not survive it: `codesign --verify` afterwards reports
+ * "code object is not signed at all". Both halves of what follows were measured on
+ * an Apple silicon runner rather than reasoned about, and the measurement is worth
+ * stating because it contradicts the obvious guess — an unsigned sidecar *runs*
+ * there, quarantined or not, because the kernel ad-hoc signs a binary with no
+ * signature on first execution. So this is not what stops a downloaded app from
+ * opening. That is Gatekeeper, one level up, and no signature this build can
+ * produce answers it.
  *
- * So: strip whatever came in, inject, sign ad-hoc. Node's own single-executable
- * documentation prescribes those three, in that order.
- *
- * Ad-hoc (`--sign -`) is a signature with no identity behind it. It is what lets
- * the binary run at all; it does nothing about Gatekeeper, which asks a different
- * question — see docs/releasing.md.
+ * It is signed anyway, for two reasons that hold regardless. Node's own
+ * single-executable documentation prescribes this exact sequence — remove,
+ * inject, sign — and a bundle carrying an unsigned nested Mach-O cannot be signed
+ * with a Developer ID or notarised, which is the only route to a macOS download
+ * that opens on a double-click. Leaving it unsigned would put the real fix out of
+ * reach later to save two commands now.
  */
 const stripSignature = async (executable) => {
   if (process.platform !== 'darwin') return;
@@ -116,9 +115,9 @@ const signAdHoc = async (executable) => {
   if (process.platform !== 'darwin') return;
 
   await run('codesign', ['--sign', '-', '--force', executable]);
-  // Verified rather than assumed: shipping a bundle whose backend cannot start is
-  // the failure this whole function exists to prevent, and it is invisible until a
-  // user downloads it. `--strict` is the check the kernel itself will apply.
+  // Verified rather than assumed. An unsigned sidecar is not loud — it runs — so
+  // v0.1.0 shipped one without anything noticing. This is the check that would
+  // have noticed, and it costs a second.
   await run('codesign', ['--verify', '--strict', '--verbose=2', executable]);
 };
 

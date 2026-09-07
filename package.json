@@ -1,6 +1,6 @@
 {
   "name": "ai-code-companion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "AI Code Companion \u2014 Tauri v2 + NestJS + MCP + LangChain + ChromaDB desktop app for chatting with your codebase.",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@ai-code-companion/backend",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "NestJS backend: indexing, retrieval, LangChain agent loop and MCP tool server.",

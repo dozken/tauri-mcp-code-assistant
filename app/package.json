@@ -1,6 +1,6 @@
 {
   "name": "@ai-code-companion/app",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Tauri v2 + React 19 desktop client for the AI Code Companion.",

@@ -41,9 +41,12 @@ escape. Whoever downloads it has to strip the quarantine flag by hand
 
 Two signatures are involved and they are not the same thing, which is easy to conflate:
 
-- **Ad-hoc**, `codesign --sign -`, is what makes a Mach-O _executable_ at all on Apple
-  silicon. The build already applies it to the sidecar, and must — see below. It carries
-  no identity, so Gatekeeper is no happier for it.
+- **Ad-hoc**, `codesign --sign -`, is a signature with no identity behind it. The build
+  applies it to the backend sidecar, because `postject` leaves that binary unsigned and an
+  unsigned nested Mach-O cannot be part of a Developer ID-signed or notarised bundle. On
+  its own it changes nothing a downloader sees — measured on an Apple silicon runner, an
+  unsigned sidecar runs either way, quarantined or not, because the kernel ad-hoc signs it
+  on first execution. It is a prerequisite for the fix, not the fix.
 - **Developer ID plus notarisation** is what Gatekeeper asks for. Nothing short of both
   opens a downloaded app on a double-click: a Developer ID signature on its own still
   produces "Apple could not verify it is free of malware", just a politer dialog with a
@@ -99,6 +102,13 @@ support turns that into a blob, and `postject` writes the blob into a copy of `n
 Nothing to install on the user's machine, and nothing to compile — the metadata store
 uses `node:sqlite` precisely so this step has no native module to worry about. It is
 ~130 MB, which is the Node runtime.
+
+On macOS the injected binary is signed ad-hoc before it is shipped, because `postject`
+leaves it unsigned — v0.1.0's is, and nothing noticed. `.github/workflows/sidecar.yml` is
+what would have: on all four release platforms it packages the sidecar, runs it, and asks
+`/health` over HTTP, and on macOS reads the signature back. Both halves earn their place —
+an unsigned sidecar still starts, so only `codesign --verify` catches that one, and a
+signature says nothing about whether the thing boots.
 
 The desktop shell starts it on launch on a port it picks (a fixed one is the port a
 developer already has something on), points the window at it, and stops it on quit. The

@@ -1,6 +1,6 @@
 {
   "name": "@ai-code-companion/contracts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Single source of truth for every type crossing a process boundary: HTTP bodies, Socket.IO events and MCP tool schemas.",
