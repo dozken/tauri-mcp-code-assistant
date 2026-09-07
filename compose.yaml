@@ -25,7 +25,11 @@ services:
       - chroma-data:/data
     restart: unless-stopped
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:8000/api/v2/heartbeat']
+      # `bash` and its `/dev/tcp`, because the image has no `curl`, no `wget`, no
+      # `nc` and no `python`. The first version of this used `curl` and marked a
+      # perfectly healthy Chroma unhealthy forever — a check that cannot pass is
+      # worse than none, since it reports a fault that is its own.
+      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/localhost/8000']
       interval: 30s
       timeout: 5s
       retries: 3
