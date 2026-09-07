@@ -11,14 +11,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * to be replaced at module level. Left as the real thing unless a test sets
  * `stub.current`, so every other case still watches a real directory.
  */
-const stub = vi.hoisted(() => ({ current: undefined as (() => FSWatcher) | undefined }));
+const stub = vi.hoisted(() => ({
+  current: undefined as ((...args: readonly unknown[]) => FSWatcher) | undefined,
+}));
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof NodeFs>();
   return {
     ...actual,
     watch: (...args: Parameters<typeof actual.watch>) =>
-      stub.current === undefined ? actual.watch(...args) : stub.current(),
+      stub.current === undefined ? actual.watch(...args) : stub.current(...args),
   };
 });
 import type { AppConfig } from '../config/configuration.js';
@@ -28,7 +30,12 @@ import { IndexWatcherService, isInteresting } from './index-watcher.service.js';
 import type { IndexingService } from './indexing.service.js';
 
 const DEBOUNCE_MS = 30;
-/** Long enough for the OS to deliver an inotify event and the debounce to fire. */
+/**
+ * Long enough for the OS to deliver a change event and the debounce to fire.
+ * Anything asserting on *how many* times the debounce fired drives the watch
+ * callback itself instead — macOS batches FSEvents on its own schedule, and a
+ * burst can straddle two windows there however long this waits.
+ */
 const settle = (): Promise<void> => new Promise((done) => setTimeout(done, DEBOUNCE_MS * 6));
 
 const build = async (
@@ -87,16 +94,28 @@ describe('IndexWatcherService', () => {
   it('costs one re-index for a burst of saves, not one per file', async () => {
     // An editor writes a temp file, renames over the original and touches the
     // directory: three events for one save, and a formatter run is twenty.
+    //
+    // The events are delivered here rather than by writing real files, because
+    // the assertion is about the debounce and not about the OS. macOS hands
+    // FSEvents over in batches on its own schedule, so eight real writes arrive
+    // spread across two debounce windows and this failed on a Mac while passing
+    // in CI — a property of the platform, not of the code under test.
     const { watcher, root, startIndexing } = await build();
     cleanup.push(async () => {
       watcher.onModuleDestroy();
       await rm(root, { recursive: true, force: true });
     });
 
+    // eslint-disable-next-line unicorn/prefer-event-target -- FSWatcher is an EventEmitter
+    const fake = Object.assign(new EventEmitter(), { close: vi.fn() });
+    let notify: ((event: string, filename: string) => void) | undefined;
+    stub.current = (...args: readonly unknown[]) => {
+      notify = args[2] as (event: string, filename: string) => void;
+      return fake as unknown as FSWatcher;
+    };
+
     watcher.onModuleInit();
-    for (let index = 0; index < 8; index += 1) {
-      await writeFile(join(root, `f${String(index)}.ts`), 'export const a = 1;');
-    }
+    for (let index = 0; index < 8; index += 1) notify?.('change', `f${String(index)}.ts`);
     await settle();
 
     expect(startIndexing).toHaveBeenCalledOnce();
@@ -287,23 +306,36 @@ describe('IndexWatcherService', () => {
 
 describe('isInteresting', () => {
   it('accepts a source file', () => {
-    expect(isInteresting('src/app.ts')).toBe(true);
+    expect(isInteresting('src/app.ts', '/repo')).toBe(true);
   });
 
   it('rejects anything inside a directory the walk skips', () => {
-    expect(isInteresting('node_modules/left-pad/index.js')).toBe(false);
-    expect(isInteresting('dist/main.js')).toBe(false);
-    expect(isInteresting('.git/HEAD')).toBe(false);
+    expect(isInteresting('node_modules/left-pad/index.js', '/repo')).toBe(false);
+    expect(isInteresting('dist/main.js', '/repo')).toBe(false);
+    expect(isInteresting('.git/HEAD', '/repo')).toBe(false);
   });
 
   it('rejects a file the indexer would not read', () => {
-    expect(isInteresting('assets/logo.png')).toBe(false);
-    expect(isInteresting('notes.docx')).toBe(false);
+    expect(isInteresting('assets/logo.png', '/repo')).toBe(false);
+    expect(isInteresting('notes.docx', '/repo')).toBe(false);
   });
 
   it('accepts an extensionless path, because it may be a directory of sources', () => {
     // A rename event names the directory, and refusing it would miss every file
     // moved into the tree in one go.
-    expect(isInteresting('src/newfolder')).toBe(true);
+    expect(isInteresting('src/newfolder', '/repo')).toBe(true);
+  });
+
+  it('ignores the watched root naming itself, which is all macOS says for a deep change', () => {
+    // FSEvents reports a `change` for the watched directory itself alongside the
+    // per-path events, whatever changed beneath it. One segment and no extension,
+    // so every other rule here calls it interesting — and an `npm install` under
+    // the root re-indexed on macOS however well the `node_modules` paths were
+    // filtered. Linux never emits it, so CI could not have caught this.
+    expect(isInteresting('repo', '/home/me/repo')).toBe(false);
+    // Only the root's own name, and only on its own: a real path that merely
+    // starts there still matters.
+    expect(isInteresting('repo/src/app.ts', '/home/me/repo')).toBe(true);
+    expect(isInteresting('other', '/home/me/repo')).toBe(true);
   });
 });

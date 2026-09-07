@@ -39,6 +39,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["../../backend/dist-bin/companion-backend"]
+    "externalBin": ["../../backend/dist-bin/companion-backend"],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }

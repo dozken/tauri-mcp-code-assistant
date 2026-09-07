@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from 'node:fs';
-import { extname, sep } from 'node:path';
+import { basename, extname, sep } from 'node:path';
 import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { APP_CONFIG, type AppConfig } from '../config/configuration.js';
@@ -64,7 +64,7 @@ export class IndexWatcherService implements OnModuleInit, OnModuleDestroy {
         // Stryker disable next-line ConditionalExpression: a null filename is
         // possible by the type and vanishingly rare in practice; the check is what
         // stops it becoming a `TypeError` inside an OS callback.
-        if (typeof filename === 'string' && isInteresting(filename)) this.schedule(root);
+        if (typeof filename === 'string' && isInteresting(filename, root)) this.schedule(root);
       });
       // A watch on a directory that later disappears surfaces here rather than as
       // an uncaught exception that takes the process with it.
@@ -135,9 +135,22 @@ export class IndexWatcherService implements OnModuleInit, OnModuleDestroy {
  * Cheap filter for a raw watch event, so a `node_modules` install does not wake
  * the indexer once per file. The walk applies the real rules; this only avoids
  * scheduling work that would find nothing to do.
+ *
+ * `watchedRoot` is here because of macOS. Alongside the per-path events Linux
+ * reports, FSEvents also emits a `change` naming the watched directory *itself* —
+ * one segment, no extension, so every rule below says "interesting" — for any
+ * change anywhere beneath it. That event carries no information about what
+ * changed, and taking it at face value defeats this entire function: an
+ * `npm install` under a watched root re-indexed on macOS however carefully the
+ * `node_modules` events were filtered. Nothing on Linux ever produces it, which
+ * is why CI stayed green while a Mac did not.
  */
-export const isInteresting = (filename: string): boolean => {
+export const isInteresting = (filename: string, watchedRoot: string): boolean => {
   const segments = filename.split(sep);
+  // The root announcing itself. A real top-level entry sharing the root's name
+  // would be skipped too, and is no loss: the events for what actually changed
+  // arrive beside it.
+  if (segments.length === 1 && segments[0] === basename(watchedRoot)) return false;
   if (segments.some((segment) => DEFAULT_IGNORED_DIRECTORIES.has(segment))) return false;
 
   // Stryker disable next-line StringLiteral: `split` never returns an empty array,

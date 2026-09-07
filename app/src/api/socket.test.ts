@@ -29,14 +29,17 @@ describe('getSocket', () => {
     expect(io).not.toHaveBeenCalled();
   });
 
-  it('asks for websocket only, and keeps reconnecting without hammering', async () => {
+  it('can fall back to polling, and keeps reconnecting without hammering', async () => {
     const { getSocket } = await import('./socket');
     getSocket();
 
     const [, options] = io.mock.calls[0] as unknown as [string, Record<string, unknown>];
-    // Polling would be blocked by the CSP in index.html, which names the socket
-    // origin for websockets only — the fallback fails silently in the packaged app.
-    expect(options.transports).toEqual(['websocket']);
+    // Websocket-only is what shipped in 0.1.1, and the packaged macOS window got
+    // no socket at all: WebKit refuses a plain `ws://` from the `tauri://localhost`
+    // origin, before the request reaches the network. Polling must come first so
+    // there is a transport that works there; the upgrade to websocket still
+    // happens wherever one is allowed.
+    expect(options.transports).toEqual(['polling', 'websocket']);
     expect(options.autoConnect).toBe(true);
     // Backs off, but not so far that a backend restart looks like a hang.
     expect(options.reconnectionDelay).toBeLessThan(options.reconnectionDelayMax as number);

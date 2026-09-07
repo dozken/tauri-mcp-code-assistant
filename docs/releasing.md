@@ -41,12 +41,21 @@ escape. Whoever downloads it has to strip the quarantine flag by hand
 
 Two signatures are involved and they are not the same thing, which is easy to conflate:
 
-- **Ad-hoc**, `codesign --sign -`, is a signature with no identity behind it. The build
-  applies it to the backend sidecar, because `postject` leaves that binary unsigned and an
-  unsigned nested Mach-O cannot be part of a Developer ID-signed or notarised bundle. On
-  its own it changes nothing a downloader sees — measured on an Apple silicon runner, an
-  unsigned sidecar runs either way, quarantined or not, because the kernel ad-hoc signs it
-  on first execution. It is a prerequisite for the fix, not the fix.
+- **Ad-hoc**, `codesign --sign -`, is a signature with no identity behind it. It is applied
+  twice: to the backend sidecar as it is packaged, because `postject` leaves that binary
+  unsigned, and to the `.app` itself via `bundle.macOS.signingIdentity`. Without the second,
+  `spctl` rejects the bundle as malformed rather than merely unknown — _"code has no
+  resources but signature indicates they must be present"_, because Tauri's binary arrives
+  linker-signed, declaring sealed resources the bundle then has no `_CodeSignature` for.
+  Signing the bundle produces one that verifies: `valid on disk`, `satisfies its Designated
+Requirement`, sidecar validated as part of it.
+
+  It is still not what Gatekeeper asks for. An ad-hoc bundle carries no identity, so a
+  download is still refused; whether the refusal is worded as _damaged_ or offers a way
+  through was not established here — two local attempts disagreed, and a machine that has
+  already approved a build is not a clean test of one that has not. Treat this as
+  well-formedness and a prerequisite for notarisation, not as a fix for the download.
+
 - **Developer ID plus notarisation** is what Gatekeeper asks for. Nothing short of both
   opens a downloaded app on a double-click: a Developer ID signature on its own still
   produces "Apple could not verify it is free of malware", just a politer dialog with a

@@ -33,3 +33,6 @@ blob-report/
 # regenerating the icons look like a change.
 app/src-tauri/icons/android/
 app/src-tauri/icons/ios/
+
+# A backend run from the repo root writes its metadata store here.
+.data/

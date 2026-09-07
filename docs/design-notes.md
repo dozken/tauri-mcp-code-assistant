@@ -25,6 +25,25 @@ input/output schemas, the LangChain tools are built from it, and the React clien
 every response and socket payload against it. A contract change is a compile error in
 three places and a visible warning in the fourth.
 
+#### The desktop window talks to its backend over polling, not a raw websocket
+
+Socket.IO is configured `transports: ['polling', 'websocket']`, and the order matters on
+macOS. The packaged window is served from `tauri://localhost`; WebKit treats a custom
+scheme as a secure context, and a secure context may not open a plain `ws://` — the
+loopback exemption browsers grant `http://127.0.0.1` is not extended to WebSocket.
+
+Configured websocket-only, as 0.1.1 shipped, nothing connects and nothing explains why:
+the request is blocked in the webview before it reaches the network, so the backend logs
+no rejected handshake and the window shows only "Cannot reach the backend: websocket
+error" while every HTTP call to the same host and port succeeds. Pointing the window at a
+backend with `COMPANION_BACKEND_URL` and watching its log is what showed it — one
+`GET /status`, and not a single `/socket.io/` request.
+
+Polling is ordinary HTTP to that same origin, which every policy already allows: the
+desktop CSP names `http://127.0.0.1:*` beside `ws://127.0.0.1:*`, and so does the browser
+one. Socket.IO upgrades off polling by itself wherever a websocket is permitted, so a
+browser build still ends up on one and the desktop window keeps working when it cannot.
+
 ### Security notes
 
 The backend reads local files, so:
